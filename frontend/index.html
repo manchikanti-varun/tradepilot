@@ -258,10 +258,8 @@
     <div id="toast"></div>
 
     <script>
-        // Backend URL — points to Railway in production, localhost in dev
-        const API = window.location.hostname === 'localhost'
-            ? 'http://localhost:8000'
-            : (window.TRADEPILOT_API_URL || 'https://tradepilot-production.up.railway.app');
+        // Backend URL — same origin since frontend is served from FastAPI
+        const API = '';
 
         async function fetchState() {
             try {
