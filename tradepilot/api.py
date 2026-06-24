@@ -410,6 +410,44 @@ async def update_settings(request: SettingsUpdate):
     return {"status": "updated", "setting": request.setting_name, "value": request.new_value}
 
 
+class CapitalUpdate(BaseModel):
+    capital: float = Field(..., ge=1000, le=20000)
+
+
+@app.post("/api/capital")
+async def set_capital(request: CapitalUpdate):
+    """Set current trading capital. Tier adjusts automatically."""
+    from tradepilot.layer2.engine21_growth import update_capital, get_growth_state
+    from tradepilot.database import get_db
+
+    old_growth = await get_growth_state()
+    old_capital = old_growth.current_capital
+
+    await update_capital(request.capital)
+    new_growth = await get_growth_state()
+
+    # Audit log
+    async with get_db() as db:
+        await db.execute(
+            "INSERT INTO settings_log (timestamp, setting_name, old_value, new_value, reason) "
+            "VALUES (?, ?, ?, ?, ?)",
+            (datetime.now().isoformat(), "current_capital",
+             str(old_capital), str(request.capital), "Manual capital update from UI"),
+        )
+        await db.commit()
+
+    logger.info("Capital updated via UI: ₹%.2f → ₹%.2f (Tier %s)",
+                old_capital, request.capital, new_growth.current_tier.value)
+
+    return {
+        "status": "updated",
+        "old_capital": old_capital,
+        "new_capital": request.capital,
+        "new_tier": new_growth.current_tier.value,
+        "progress_pct": new_growth.progress_pct_to_next_tier,
+    }
+
+
 # === DEBUG/DEV ENDPOINTS (rate-limited, not in original spec) ===
 
 _last_scan_trigger: float = 0.0

@@ -197,7 +197,7 @@
     </div>
 
     <!-- Growth Strip -->
-    <div class="growth-strip">
+    <div class="growth-strip" onclick="toggleCapitalSettings()" style="cursor:pointer" title="Click to change capital">
         <div>
             <div class="amount" id="capital-amount">₹1,000</div>
             <div class="progress" id="capital-tier">Tier A</div>
@@ -207,6 +207,22 @@
             <div class="progress-bar" style="width:150px">
                 <div class="progress-bar-fill" id="progress-fill" style="width:0%"></div>
             </div>
+            <div style="font-size:0.7rem; color:var(--muted); margin-top:0.25rem">tap to edit</div>
+        </div>
+    </div>
+
+    <!-- Capital Settings (collapsible) -->
+    <div id="capital-settings" class="card" style="display:none; border-color:var(--blue)">
+        <div class="card-title">💰 Set Capital</div>
+        <div style="display:flex; gap:0.5rem; align-items:center">
+            <input type="number" id="capital-input" placeholder="Enter amount (₹1000-20000)"
+                   min="1000" max="20000" step="100"
+                   style="flex:1; background:var(--bg); border:1px solid var(--border); border-radius:8px; padding:0.5rem 1rem; color:var(--text); font-size:0.95rem">
+            <button onclick="updateCapital()" style="background:var(--blue); color:#fff; border:none; border-radius:8px; padding:0.5rem 1rem; font-weight:600; cursor:pointer">Update</button>
+            <button onclick="toggleCapitalSettings()" style="background:var(--border); color:var(--muted); border:none; border-radius:8px; padding:0.5rem 1rem; cursor:pointer">Cancel</button>
+        </div>
+        <div style="margin-top:0.5rem; font-size:0.8rem; color:var(--muted)">
+            This sets your current trading capital. Tier and risk levels adjust automatically.
         </div>
     </div>
 
@@ -498,6 +514,40 @@
         // Initial load
         fetchState();
         loadBrief();
+
+        // Capital settings toggle
+        function toggleCapitalSettings() {
+            const el = document.getElementById('capital-settings');
+            el.style.display = el.style.display === 'none' ? 'block' : 'none';
+        }
+
+        async function updateCapital() {
+            const input = document.getElementById('capital-input');
+            const amount = parseFloat(input.value);
+
+            if (!amount || amount < 1000 || amount > 20000) {
+                showToast('Capital must be between ₹1,000 and ₹20,000', 'error');
+                return;
+            }
+
+            try {
+                const resp = await fetch(`${API}/api/capital`, {
+                    method: 'POST',
+                    headers: {'Content-Type': 'application/json'},
+                    body: JSON.stringify({capital: amount}),
+                });
+                const data = await resp.json();
+                if (resp.ok) {
+                    showToast(`Capital updated to ₹${amount.toLocaleString()}`, 'success');
+                    toggleCapitalSettings();
+                    fetchState();
+                } else {
+                    showToast(data.detail || 'Update failed', 'error');
+                }
+            } catch (e) {
+                showToast('Failed to update capital', 'error');
+            }
+        }
 
         // Conditional polling: 30s during market hours with position, 5min otherwise, off on weekends
         function getRefreshInterval() {
