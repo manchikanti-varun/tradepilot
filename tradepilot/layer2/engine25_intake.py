@@ -11,7 +11,11 @@ from typing import Optional
 
 from thefuzz import fuzz, process
 
-from tradepilot.layer1.yahoo_provider import NIFTY200_SYMBOLS, SECTOR_MAP
+from tradepilot.layer1.nifty_universe import get_symbol_list, get_sector_map
+
+# Load symbols and sector map from the universe module
+NIFTY200_SYMBOLS = get_symbol_list(include_nifty500=True)
+SECTOR_MAP = get_sector_map(include_nifty500=True)
 
 
 # Symbol aliases for common names
