@@ -1,0 +1,524 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>TradePilot AI v3.4 — Cockpit</title>
+    <style>
+        * { box-sizing: border-box; margin: 0; padding: 0; }
+        :root {
+            --bg: #0f1419;
+            --card: #1a2332;
+            --border: #2d3748;
+            --text: #e2e8f0;
+            --muted: #8899a6;
+            --green: #10b981;
+            --red: #ef4444;
+            --amber: #f59e0b;
+            --blue: #3b82f6;
+            --purple: #8b5cf6;
+        }
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+            background: var(--bg);
+            color: var(--text);
+            line-height: 1.6;
+            padding: 1rem;
+            max-width: 900px;
+            margin: 0 auto;
+        }
+        h1 { font-size: 1.5rem; margin-bottom: 0.5rem; }
+        h2 { font-size: 1.1rem; color: var(--muted); margin-bottom: 1rem; }
+        .card {
+            background: var(--card);
+            border: 1px solid var(--border);
+            border-radius: 12px;
+            padding: 1.25rem;
+            margin-bottom: 1rem;
+        }
+        .card-title {
+            font-size: 0.85rem;
+            text-transform: uppercase;
+            letter-spacing: 0.05em;
+            color: var(--muted);
+            margin-bottom: 0.75rem;
+        }
+        .growth-strip {
+            background: linear-gradient(135deg, #1a2332, #1e3a5f);
+            border: 1px solid var(--blue);
+            padding: 1rem 1.25rem;
+            border-radius: 12px;
+            margin-bottom: 1rem;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+        .growth-strip .amount { font-size: 1.3rem; font-weight: 700; }
+        .growth-strip .progress { color: var(--blue); font-size: 0.9rem; }
+        .progress-bar {
+            height: 6px;
+            background: var(--border);
+            border-radius: 3px;
+            margin-top: 0.5rem;
+            overflow: hidden;
+        }
+        .progress-bar-fill {
+            height: 100%;
+            background: var(--blue);
+            border-radius: 3px;
+            transition: width 0.3s;
+        }
+        .signal-card {
+            border-left: 4px solid var(--green);
+            padding-left: 1rem;
+        }
+        .signal-card.priority-1 { border-left-color: var(--green); }
+        .signal-card.priority-2 { border-left-color: var(--muted); opacity: 0.7; }
+        .signal-ticker { font-size: 1.2rem; font-weight: 700; }
+        .signal-meta { color: var(--muted); font-size: 0.85rem; margin-top: 0.25rem; }
+        .signal-action {
+            margin-top: 0.75rem;
+            padding: 0.5rem 1rem;
+            background: var(--green);
+            color: #fff;
+            border: none;
+            border-radius: 8px;
+            font-weight: 600;
+            cursor: default;
+            display: inline-block;
+        }
+        .signal-action.secondary { background: var(--border); color: var(--muted); }
+        .badge {
+            display: inline-block;
+            padding: 0.15rem 0.5rem;
+            border-radius: 4px;
+            font-size: 0.75rem;
+            font-weight: 600;
+        }
+        .badge-green { background: #064e3b; color: var(--green); }
+        .badge-red { background: #450a0a; color: var(--red); }
+        .badge-amber { background: #451a03; color: var(--amber); }
+        .badge-blue { background: #1e3a5f; color: var(--blue); }
+        .intake-bar {
+            position: sticky;
+            top: 0;
+            z-index: 100;
+            background: var(--card);
+            border: 1px solid var(--border);
+            border-radius: 12px;
+            padding: 0.75rem;
+            margin-bottom: 1rem;
+            display: flex;
+            gap: 0.5rem;
+        }
+        .intake-bar input {
+            flex: 1;
+            background: var(--bg);
+            border: 1px solid var(--border);
+            border-radius: 8px;
+            padding: 0.6rem 1rem;
+            color: var(--text);
+            font-size: 0.95rem;
+        }
+        .intake-bar input::placeholder { color: var(--muted); }
+        .intake-bar button {
+            background: var(--blue);
+            color: #fff;
+            border: none;
+            border-radius: 8px;
+            padding: 0.6rem 1.2rem;
+            font-weight: 600;
+            cursor: pointer;
+        }
+        .intake-bar button:hover { opacity: 0.9; }
+        .banner {
+            padding: 0.75rem 1rem;
+            border-radius: 8px;
+            margin-bottom: 1rem;
+            font-size: 0.9rem;
+        }
+        .banner-red { background: #450a0a; border: 1px solid var(--red); color: var(--red); }
+        .banner-amber { background: #451a03; border: 1px solid var(--amber); color: var(--amber); }
+        .banner-green { background: #064e3b; border: 1px solid var(--green); color: var(--green); }
+        .stat-row {
+            display: flex;
+            justify-content: space-between;
+            padding: 0.4rem 0;
+            border-bottom: 1px solid var(--border);
+        }
+        .stat-row:last-child { border-bottom: none; }
+        .stat-label { color: var(--muted); }
+        .stat-value { font-weight: 600; }
+        .position-card {
+            border: 1px solid var(--green);
+            border-radius: 12px;
+            padding: 1.25rem;
+            margin-bottom: 1rem;
+            background: linear-gradient(135deg, #0f1419, #064e3b22);
+        }
+        .position-card.exit-now {
+            border-color: var(--red);
+            background: linear-gradient(135deg, #0f1419, #450a0a33);
+        }
+        #brief-card { border: 1px solid var(--purple); }
+        .hidden { display: none; }
+        .loading { text-align: center; color: var(--muted); padding: 2rem; }
+        #toast {
+            position: fixed;
+            bottom: 1rem;
+            right: 1rem;
+            background: var(--card);
+            border: 1px solid var(--border);
+            padding: 1rem 1.5rem;
+            border-radius: 8px;
+            display: none;
+            z-index: 999;
+            max-width: 350px;
+        }
+    </style>
+</head>
+<body>
+    <h1>TradePilot AI <span style="color:var(--blue)">v3.4</span></h1>
+    <h2>Co-Pilot Mode — You Execute, AI Decides</h2>
+
+    <!-- Quick Intake Bar -->
+    <div class="intake-bar">
+        <input type="text" id="intake-input" placeholder="Tell me what you did... (e.g. 'Bought SBIN at 845, qty 4')">
+        <button onclick="submitIntake()">Send</button>
+    </div>
+
+    <!-- Risk Banner (shown when not GO) -->
+    <div id="risk-banner" class="banner banner-red hidden"></div>
+
+    <!-- Morning Brief -->
+    <div id="brief-card" class="card hidden">
+        <div class="card-title">☀️ Morning Brief</div>
+        <div id="brief-content"></div>
+    </div>
+
+    <!-- Growth Strip -->
+    <div class="growth-strip">
+        <div>
+            <div class="amount" id="capital-amount">₹1,000</div>
+            <div class="progress" id="capital-tier">Tier A</div>
+        </div>
+        <div style="text-align:right">
+            <div class="progress" id="capital-progress">0% to Tier B</div>
+            <div class="progress-bar" style="width:150px">
+                <div class="progress-bar-fill" id="progress-fill" style="width:0%"></div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Active Position (shown when trade is open) -->
+    <div id="position-section" class="hidden">
+        <div class="position-card" id="position-card">
+            <div class="card-title">📊 Active Position</div>
+            <div id="position-content"></div>
+        </div>
+    </div>
+
+    <!-- Signal Cards -->
+    <div id="signals-section">
+        <div class="card">
+            <div class="card-title">🎯 Top Signal</div>
+            <div id="signals-content">
+                <p class="loading">Scanning market...</p>
+            </div>
+        </div>
+    </div>
+
+    <!-- Rejections -->
+    <div id="rejections-banner" class="banner banner-amber hidden"></div>
+
+    <!-- Stats -->
+    <div class="card">
+        <div class="card-title">📈 Performance</div>
+        <div id="stats-content">
+            <div class="stat-row">
+                <span class="stat-label">Total Trades</span>
+                <span class="stat-value" id="stat-trades">0</span>
+            </div>
+            <div class="stat-row">
+                <span class="stat-label">Win Rate</span>
+                <span class="stat-value" id="stat-winrate">—</span>
+            </div>
+            <div class="stat-row">
+                <span class="stat-label">Net P&L</span>
+                <span class="stat-value" id="stat-pnl">₹0</span>
+            </div>
+            <div class="stat-row">
+                <span class="stat-label">Charge Drag</span>
+                <span class="stat-value" id="stat-charges">—</span>
+            </div>
+        </div>
+    </div>
+
+    <!-- Toast notification -->
+    <div id="toast"></div>
+
+    <script>
+        // Backend URL — points to Railway in production, localhost in dev
+        const API = window.location.hostname === 'localhost'
+            ? 'http://localhost:8000'
+            : (window.TRADEPILOT_API_URL || 'https://tradepilot-production.up.railway.app');
+
+        async function fetchState() {
+            try {
+                const [state, growth, position, signals, rejections, perf] = await Promise.all([
+                    fetch(`${API}/api/state`).then(r => r.json()),
+                    fetch(`${API}/api/growth`).then(r => r.json()),
+                    fetch(`${API}/api/position`).then(r => r.json()),
+                    fetch(`${API}/api/signals`).then(r => r.json()),
+                    fetch(`${API}/api/rejections/today`).then(r => r.json()),
+                    fetch(`${API}/api/performance`).then(r => r.json()),
+                ]);
+
+                updateGrowth(growth);
+                updateRiskBanner(state);
+                updatePosition(position);
+                updateSignals(signals);
+                updateRejections(rejections);
+                updatePerformance(perf);
+            } catch (e) {
+                console.error('Failed to fetch state:', e);
+            }
+        }
+
+        function updateGrowth(g) {
+            document.getElementById('capital-amount').textContent = `₹${g.current_capital.toLocaleString()}`;
+            document.getElementById('capital-tier').textContent = `Tier ${g.current_tier}`;
+            document.getElementById('capital-progress').textContent = `${g.progress_pct_to_next_tier.toFixed(0)}% to next tier`;
+            document.getElementById('progress-fill').style.width = `${g.progress_pct_to_next_tier}%`;
+        }
+
+        function updateRiskBanner(state) {
+            const banner = document.getElementById('risk-banner');
+            if (state.risk_gate === 'HARD_STOP') {
+                banner.textContent = `🛑 HARD STOP: ${state.risk_reason}`;
+                banner.className = 'banner banner-red';
+                banner.classList.remove('hidden');
+            } else if (state.risk_gate === 'CAUTION') {
+                banner.textContent = `⚠️ CAUTION: ${state.risk_reason}`;
+                banner.className = 'banner banner-amber';
+                banner.classList.remove('hidden');
+            } else {
+                banner.classList.add('hidden');
+            }
+        }
+
+        function updatePosition(pos) {
+            const section = document.getElementById('position-section');
+            const card = document.getElementById('position-card');
+            if (!pos.active) {
+                section.classList.add('hidden');
+                return;
+            }
+            section.classList.remove('hidden');
+            const p = pos.position;
+            const pnlColor = p.net_pnl >= 0 ? 'var(--green)' : 'var(--red)';
+            let exitHtml = '';
+            if (pos.exit_signal && pos.exit_signal.should_exit) {
+                card.className = 'position-card exit-now';
+                exitHtml = `<div style="margin-top:0.75rem;padding:0.5rem;background:#450a0a;border-radius:6px;color:var(--red)">
+                    <strong>${pos.exit_signal.urgency}</strong>: ${pos.exit_signal.reason}<br>
+                    Exit @ ~₹${pos.exit_signal.suggested_exit_price}
+                </div>`;
+            } else {
+                card.className = 'position-card';
+            }
+            let reevalHtml = '';
+            if (pos.reeval) {
+                const actionColor = pos.reeval.action === 'HOLD' ? 'var(--green)' :
+                                    pos.reeval.action === 'WATCH' ? 'var(--amber)' : 'var(--red)';
+                reevalHtml = `<div style="margin-top:0.5rem;font-size:0.85rem;color:${actionColor}">
+                    Re-eval: ${pos.reeval.action} (score ${pos.reeval.score.toFixed(0)}) — ${pos.reeval.reason}
+                </div>`;
+            }
+            document.getElementById('position-content').innerHTML = `
+                <div style="display:flex;justify-content:space-between;align-items:baseline">
+                    <span class="signal-ticker">${p.ticker}</span>
+                    <span style="color:${pnlColor};font-weight:700;font-size:1.1rem">
+                        ${p.net_pnl >= 0 ? '+' : ''}₹${p.net_pnl.toFixed(2)}
+                    </span>
+                </div>
+                <div class="signal-meta">
+                    Qty ${p.qty} @ ₹${p.entry_price} | LTP ₹${p.current_ltp} | Phase: ${p.phase}
+                </div>
+                <div class="signal-meta">
+                    Stop: ₹${p.stop_price} | Charges est: ₹${p.charges_estimate}
+                </div>
+                ${exitHtml}
+                ${reevalHtml}
+            `;
+        }
+
+        function updateSignals(data) {
+            const el = document.getElementById('signals-content');
+            if (data.signals.length === 0) {
+                el.innerHTML = '<p style="color:var(--muted)">No actionable signals right now. Scanning continues...</p>';
+                return;
+            }
+            const s = data.signals[0];
+            el.innerHTML = `
+                <div class="signal-card priority-1">
+                    <div style="display:flex;justify-content:space-between;align-items:baseline">
+                        <span class="signal-ticker">${s.symbol}</span>
+                        <span class="badge badge-green">${s.grade}</span>
+                    </div>
+                    <div class="signal-meta">${s.sector} | Score ${s.composite} | R:R ${s.risk_reward}</div>
+                    <div class="signal-meta" style="margin-top:0.5rem">
+                        Net after charges: <strong>₹${s.net_after_charges.toFixed(2)}</strong> |
+                        Needs ${s.breakeven_pct}% move to break even |
+                        Tier: ${data.risk_gate === 'GO' ? '✅' : '⚠️'}
+                    </div>
+                    <div style="margin-top:0.75rem;font-weight:600">
+                        ${s.message}
+                    </div>
+                    <div class="signal-action">Buy this in Angel One</div>
+                </div>
+            `;
+        }
+
+        function updateRejections(data) {
+            const el = document.getElementById('rejections-banner');
+            if (data.total_rejected > 0) {
+                el.textContent = `📋 ${data.headline}`;
+                el.classList.remove('hidden');
+            } else {
+                el.classList.add('hidden');
+            }
+        }
+
+        function updatePerformance(perf) {
+            document.getElementById('stat-trades').textContent = perf.total_trades || 0;
+            document.getElementById('stat-winrate').textContent = perf.win_rate ? `${perf.win_rate}%` : '—';
+            document.getElementById('stat-pnl').textContent = perf.net_positive !== undefined ?
+                (perf.net_positive ? '✅ Positive' : '❌ Negative') : '—';
+            document.getElementById('stat-charges').textContent = perf.charge_drag_pct ?
+                `${perf.charge_drag_pct}%` : '—';
+        }
+
+        async function submitIntake() {
+            const input = document.getElementById('intake-input');
+            const text = input.value.trim();
+            if (!text) return;
+
+            try {
+                const resp = await fetch(`${API}/api/intake`, {
+                    method: 'POST',
+                    headers: {'Content-Type': 'application/json'},
+                    body: JSON.stringify({text}),
+                });
+                const data = await resp.json();
+
+                if (data.status === 'confirm_entry' || data.status === 'confirm_exit') {
+                    showToast(data.message, 'confirm', data.parsed);
+                } else if (data.status === 'clarification_needed') {
+                    showToast(data.message, 'warn');
+                } else {
+                    showToast(data.message, 'error');
+                }
+                input.value = '';
+            } catch (e) {
+                showToast('Failed to process intake', 'error');
+            }
+        }
+
+        async function confirmIntake(parsed) {
+            try {
+                const resp = await fetch(`${API}/api/intake/confirm`, {
+                    method: 'POST',
+                    headers: {'Content-Type': 'application/json'},
+                    body: JSON.stringify(parsed),
+                });
+                const data = await resp.json();
+                showToast(data.message, data.status.includes('error') ? 'error' : 'success');
+                setTimeout(fetchState, 1000);
+            } catch (e) {
+                showToast('Failed to confirm', 'error');
+            }
+        }
+
+        function showToast(msg, type, parsed) {
+            const toast = document.getElementById('toast');
+            let bg = 'var(--card)';
+            let border = 'var(--border)';
+            if (type === 'success') { border = 'var(--green)'; }
+            else if (type === 'error') { border = 'var(--red)'; }
+            else if (type === 'warn') { border = 'var(--amber)'; }
+            else if (type === 'confirm') { border = 'var(--blue)'; }
+
+            let html = `<div style="margin-bottom:0.5rem">${msg}</div>`;
+            if (type === 'confirm' && parsed) {
+                html += `<button onclick="confirmIntake(${JSON.stringify(parsed).replace(/"/g, '&quot;')})" 
+                          style="background:var(--green);color:#fff;border:none;padding:0.4rem 1rem;border-radius:6px;cursor:pointer;margin-right:0.5rem">
+                          ✓ Confirm</button>`;
+                html += `<button onclick="hideToast()" 
+                          style="background:var(--border);color:var(--text);border:none;padding:0.4rem 1rem;border-radius:6px;cursor:pointer">
+                          ✕ Cancel</button>`;
+            }
+
+            toast.innerHTML = html;
+            toast.style.display = 'block';
+            toast.style.borderColor = border;
+
+            if (type !== 'confirm') {
+                setTimeout(hideToast, 4000);
+            }
+        }
+
+        function hideToast() {
+            document.getElementById('toast').style.display = 'none';
+        }
+
+        // Handle Enter key in intake
+        document.getElementById('intake-input').addEventListener('keypress', (e) => {
+            if (e.key === 'Enter') submitIntake();
+        });
+
+        // Load morning brief
+        async function loadBrief() {
+            try {
+                const resp = await fetch(`${API}/api/brief/today`);
+                const brief = await resp.json();
+                const card = document.getElementById('brief-card');
+                const content = document.getElementById('brief-content');
+                content.innerHTML = `<div style="font-size:0.95rem">${brief.one_line_summary}</div>`;
+                if (brief.watchlist_summary && brief.watchlist_summary.top_3_by_score.length > 0) {
+                    const top3 = brief.watchlist_summary.top_3_by_score
+                        .map(s => `${s.ticker} (${s.grade})`)
+                        .join(', ');
+                    content.innerHTML += `<div style="margin-top:0.5rem;font-size:0.85rem;color:var(--muted)">Top picks: ${top3}</div>`;
+                }
+                card.classList.remove('hidden');
+            } catch (e) {
+                // Brief not available yet
+            }
+        }
+
+        // Initial load
+        fetchState();
+        loadBrief();
+
+        // Conditional polling: 30s during market hours with position, 5min otherwise, off on weekends
+        function getRefreshInterval() {
+            const now = new Date();
+            const day = now.getDay(); // 0=Sun, 6=Sat
+            if (day === 0 || day === 6) return 300000; // 5 min on weekends
+            const hour = now.getHours();
+            const min = now.getMinutes();
+            const ist = hour; // Assumes browser is in IST
+            if (ist >= 9 && ist < 16) return 30000; // 30s during market hours
+            return 300000; // 5 min outside hours
+        }
+
+        let refreshTimer = setInterval(fetchState, getRefreshInterval());
+        // Re-evaluate interval every 5 min
+        setInterval(() => {
+            clearInterval(refreshTimer);
+            refreshTimer = setInterval(fetchState, getRefreshInterval());
+        }, 300000);
+    </script>
+</body>
+</html>

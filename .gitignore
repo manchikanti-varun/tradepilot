@@ -1,0 +1,41 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.egg-info/
+dist/
+build/
+*.egg
+
+# Virtual environments
+venv/
+env/
+.venv/
+
+# Data (DB is backed up via GitHub API, not committed to main repo)
+data/
+*.db
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# OS
+Thumbs.db
+.DS_Store
+
+# Environment variables (NEVER commit)
+.env
+.env.local
+
+# Test artifacts
+test_engine8_standalone.py
+test_engine8_verify.py
+.pytest_cache/
+htmlcov/
+.coverage
+
+# Logs
+*.log
