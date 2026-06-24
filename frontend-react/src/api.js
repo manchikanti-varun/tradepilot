@@ -26,24 +26,28 @@ export const api = {
   brief: () => get('/api/brief/today'),
   history: (limit = 30) => get(`/api/history?limit=${limit}`),
   watchlist: () => get('/api/watchlist'),
+  realityCheck: () => get('/api/report/reality-check'),
+  coachReport: () => get('/api/report/today'),
   intake: (text) => post('/api/intake', { text }),
   confirmIntake: (data) => post('/api/intake/confirm', data),
   setCapital: (capital) => post('/api/capital', { capital }),
   scan: () => post('/api/scan', {}),
 };
 
-// 12-hour time formatter
 export function formatTime(isoStr) {
   if (!isoStr) return '';
-  const d = new Date(isoStr);
-  return d.toLocaleString('en-IN', {
-    hour: 'numeric', minute: '2-digit', hour12: true,
-    day: 'numeric', month: 'short',
+  return new Date(isoStr).toLocaleString('en-IN', {
+    hour: 'numeric', minute: '2-digit', hour12: true, day: 'numeric', month: 'short',
   });
 }
 
-export function formatTime12(date = new Date()) {
-  return date.toLocaleString('en-IN', {
+export function formatClock() {
+  return new Date().toLocaleString('en-IN', {
     hour: 'numeric', minute: '2-digit', second: '2-digit', hour12: true,
   });
+}
+
+export function formatCurrency(n) {
+  if (n === null || n === undefined) return '—';
+  return '₹' + Number(n).toLocaleString('en-IN', { maximumFractionDigits: 2 });
 }
