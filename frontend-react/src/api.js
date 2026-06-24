@@ -1,0 +1,49 @@
+const BASE = import.meta.env.VITE_API_URL || '';
+
+async function get(path) {
+  const res = await fetch(`${BASE}${path}`);
+  if (!res.ok) throw new Error(`${res.status}`);
+  return res.json();
+}
+
+async function post(path, body) {
+  const res = await fetch(`${BASE}${path}`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(body),
+  });
+  return res.json();
+}
+
+export const api = {
+  health: () => get('/api/health'),
+  state: () => get('/api/state'),
+  growth: () => get('/api/growth'),
+  position: () => get('/api/position'),
+  signals: () => get('/api/signals'),
+  rejections: () => get('/api/rejections/today'),
+  performance: () => get('/api/performance'),
+  brief: () => get('/api/brief/today'),
+  history: (limit = 30) => get(`/api/history?limit=${limit}`),
+  watchlist: () => get('/api/watchlist'),
+  intake: (text) => post('/api/intake', { text }),
+  confirmIntake: (data) => post('/api/intake/confirm', data),
+  setCapital: (capital) => post('/api/capital', { capital }),
+  scan: () => post('/api/scan', {}),
+};
+
+// 12-hour time formatter
+export function formatTime(isoStr) {
+  if (!isoStr) return '';
+  const d = new Date(isoStr);
+  return d.toLocaleString('en-IN', {
+    hour: 'numeric', minute: '2-digit', hour12: true,
+    day: 'numeric', month: 'short',
+  });
+}
+
+export function formatTime12(date = new Date()) {
+  return date.toLocaleString('en-IN', {
+    hour: 'numeric', minute: '2-digit', second: '2-digit', hour12: true,
+  });
+}
