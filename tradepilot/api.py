@@ -1361,7 +1361,7 @@ async def get_trade_insights():
     best_sector = max(sector_stats.items(), key=lambda x: x[1]["pnl"], default=None)
     if best_sector and best_sector[1]["pnl"] > 0:
         insights.append({
-            "type": "pattern", "icon": "🏆",
+            "type": "pattern", "icon": "trophy",
             "title": f"Best sector: {best_sector[0]}",
             "detail": f"You've made ₹{best_sector[1]['pnl']:.0f} from {best_sector[0]} stocks",
         })
@@ -1382,7 +1382,7 @@ async def get_trade_insights():
     if best_hour and best_hour[1]["total"] >= 2:
         wr = best_hour[1]["wins"] / best_hour[1]["total"] * 100
         insights.append({
-            "type": "pattern", "icon": "⏰",
+            "type": "pattern", "icon": "clock",
             "title": f"Best time: {best_hour[0]}:00 – {best_hour[0]}:59",
             "detail": f"{wr:.0f}% win rate from {best_hour[1]['total']} trades at this hour",
         })
@@ -1395,7 +1395,7 @@ async def get_trade_insights():
     repeat_losers = [(k, v) for k, v in ticker_losses.items() if v >= 2]
     for ticker, count in repeat_losers[:2]:
         insights.append({
-            "type": "warning", "icon": "⚠️",
+            "type": "warning", "icon": "alert",
             "title": f"Repeat loss: {ticker} ({count} losses)",
             "detail": f"You've lost {count} times on {ticker}. Consider avoiding it.",
         })
@@ -1410,7 +1410,7 @@ async def get_trade_insights():
             avg_loss_hold = sum(losing_holds) / len(losing_holds)
             if avg_loss_hold > avg_win_hold * 1.5:
                 insights.append({
-                    "type": "tip", "icon": "💡",
+                    "type": "tip", "icon": "lightbulb",
                     "title": "You hold losers too long",
                     "detail": f"Avg winning hold: {avg_win_hold:.0f} min vs losing hold: {avg_loss_hold:.0f} min. Cut losses faster.",
                 })
@@ -1428,7 +1428,7 @@ async def get_trade_insights():
             break
     if streak >= 2:
         insights.append({
-            "type": "streak", "icon": "🔥" if streak_type else "❄️",
+            "type": "streak", "icon": streak_type and "flame" or "snowflake",
             "title": f"{'Win' if streak_type else 'Loss'} streak: {streak} trades",
             "detail": f"You're on a {streak}-trade {'winning' if streak_type else 'losing'} streak",
         })

@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react'
-import { X, TrendingUp, TrendingDown, Minus, Target, Shield, AlertTriangle, Zap, BarChart3 } from 'lucide-react'
+import { X, TrendingUp, TrendingDown, Minus, Target, Shield, AlertTriangle, Zap, BarChart3, Lightbulb, Clock, Newspaper, History, DollarSign, Layers, CheckCircle2, XCircle } from 'lucide-react'
 import { api, formatCurrency } from '../api'
 
 const TREND_CONFIG = {
@@ -66,7 +66,9 @@ export default function StockDetailModal({ symbol, onClose }) {
 
             {/* Why This Stock */}
             <div className="bg-accent-blue/10 border border-accent-blue/20 rounded-xl p-3.5">
-              <p className="text-xs font-bold text-accent-blue mb-1">💡 Why this stock?</p>
+              <p className="text-xs font-bold text-accent-blue mb-1 flex items-center gap-1.5">
+                <Lightbulb size={12} /> Why this stock?
+              </p>
               <p className="text-xs text-gray-200 leading-relaxed">{plan.why_this_stock}</p>
             </div>
 
@@ -101,7 +103,7 @@ export default function StockDetailModal({ symbol, onClose }) {
             {/* Multi-Timeframe Analysis */}
             {multiframe && multiframe.timeframes && (
               <div className="bg-dark-700 border border-dark-600 rounded-xl p-4">
-                <h3 className="text-xs font-bold text-gray-400 mb-2">📐 Multi-Timeframe</h3>
+                <h3 className="text-xs font-bold text-gray-400 mb-2 flex items-center gap-2"><Layers size={12} className="text-accent-blue" /> Multi-Timeframe</h3>
                 <div className="flex gap-2">
                   {Object.entries(multiframe.timeframes).map(([tf, data]) => (
                     <div key={tf} className={`flex-1 rounded-lg p-2 text-center border ${
@@ -121,9 +123,9 @@ export default function StockDetailModal({ symbol, onClose }) {
                   multiframe.alignment === 'STRONG_BUY' ? 'text-green-400' :
                   multiframe.alignment === 'STRONG_SELL' ? 'text-red-400' : 'text-gray-500'
                 }`}>
-                  {multiframe.alignment === 'STRONG_BUY' ? '✅ All timeframes bullish — STRONG BUY' :
-                   multiframe.alignment === 'STRONG_SELL' ? '❌ All timeframes bearish — AVOID' :
-                   '⚠️ Mixed signals across timeframes — be cautious'}
+                  {multiframe.alignment === 'STRONG_BUY' ? 'All timeframes bullish — STRONG BUY signal' :
+                   multiframe.alignment === 'STRONG_SELL' ? 'All timeframes bearish — AVOID this stock' :
+                   'Mixed signals across timeframes — be cautious'}
                 </p>
               </div>
             )}
@@ -171,7 +173,7 @@ export default function StockDetailModal({ symbol, onClose }) {
             {/* Charges Breakdown */}
             {plan.charges_breakdown && (
               <div className="bg-dark-700 border border-dark-600 rounded-xl p-4">
-                <h3 className="text-xs font-bold text-gray-400 mb-2">💰 Charges Breakdown</h3>
+                <h3 className="text-xs font-bold text-gray-400 mb-2 flex items-center gap-2"><DollarSign size={12} className="text-amber-400" /> Charges Breakdown</h3>
                 <div className="grid grid-cols-3 gap-1.5 text-center">
                   <ChargeItem label="Brokerage" value={plan.charges_breakdown.brokerage} />
                   <ChargeItem label="STT" value={plan.charges_breakdown.stt} />
@@ -186,7 +188,7 @@ export default function StockDetailModal({ symbol, onClose }) {
             {/* Last 5 Days */}
             {plan.last_5_days?.length > 0 && (
               <div className="bg-dark-700 border border-dark-600 rounded-xl p-4">
-                <h3 className="text-xs font-bold text-gray-400 mb-2">📊 Last 5 Days</h3>
+                <h3 className="text-xs font-bold text-gray-400 mb-2 flex items-center gap-2"><BarChart3 size={12} className="text-gray-400" /> Last 5 Days</h3>
                 <div className="flex gap-1.5">
                   {plan.last_5_days.map((d, i) => (
                     <div key={i} className={`flex-1 rounded-lg p-1.5 text-center ${
@@ -205,7 +207,7 @@ export default function StockDetailModal({ symbol, onClose }) {
             {/* Stock News */}
             {plan.stock_news?.length > 0 && (
               <div className="bg-dark-700 border border-dark-600 rounded-xl p-4">
-                <h3 className="text-xs font-bold text-gray-400 mb-2">📰 Recent News</h3>
+                <h3 className="text-xs font-bold text-gray-400 mb-2 flex items-center gap-2"><Newspaper size={12} className="text-gray-400" /> Recent News</h3>
                 <div className="space-y-1.5">
                   {plan.stock_news.map((n, i) => (
                     <div key={i} className="flex items-start gap-2">
@@ -220,7 +222,7 @@ export default function StockDetailModal({ symbol, onClose }) {
             {/* Best Entry Time */}
             {plan.best_entry_time && (
               <div className="bg-dark-700 border border-dark-600 rounded-xl p-3 flex items-center gap-3">
-                <span className="text-lg">⏰</span>
+                <Clock size={16} className="text-accent-blue" />
                 <div>
                   <p className="text-xs font-bold text-white">Best entry window: {plan.best_entry_time}</p>
                   <p className="text-[10px] text-gray-500">Based on recent intraday price pattern</p>
@@ -231,7 +233,7 @@ export default function StockDetailModal({ symbol, onClose }) {
             {/* Past Signals */}
             {plan.past_signals?.length > 0 && (
               <div className="bg-dark-700 border border-dark-600 rounded-xl p-4">
-                <h3 className="text-xs font-bold text-gray-400 mb-2">🔔 Past Signals for {symbol}</h3>
+                <h3 className="text-xs font-bold text-gray-400 mb-2 flex items-center gap-2"><History size={12} className="text-gray-400" /> Past Signals for {symbol}</h3>
                 <div className="space-y-1.5">
                   {plan.past_signals.map((s, i) => (
                     <div key={i} className="flex items-center justify-between bg-dark-900 rounded-lg px-3 py-2">
@@ -248,7 +250,7 @@ export default function StockDetailModal({ symbol, onClose }) {
 
             {/* Entry Conditions */}
             <div className="bg-dark-700 border border-dark-600 rounded-xl p-4">
-              <h3 className="text-xs font-bold text-green-400 mb-2">✅ When to Buy</h3>
+              <h3 className="text-xs font-bold text-green-400 mb-2 flex items-center gap-2"><CheckCircle2 size={12} /> When to Buy</h3>
               <ul className="space-y-1.5">
                 {plan.entry_conditions.map((c, i) => (
                   <li key={i} className="text-xs text-gray-300 flex items-start gap-2">
@@ -260,7 +262,7 @@ export default function StockDetailModal({ symbol, onClose }) {
 
             {/* Avoid Conditions */}
             <div className="bg-dark-700 border border-dark-600 rounded-xl p-4">
-              <h3 className="text-xs font-bold text-red-400 mb-2">❌ When NOT to Buy</h3>
+              <h3 className="text-xs font-bold text-red-400 mb-2 flex items-center gap-2"><XCircle size={12} /> When NOT to Buy</h3>
               <ul className="space-y-1.5">
                 {plan.avoid_conditions.map((c, i) => (
                   <li key={i} className="text-xs text-gray-300 flex items-start gap-2">

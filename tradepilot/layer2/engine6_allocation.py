@@ -60,10 +60,12 @@ def compute_allocation(
     # HARD FLOOR — is_proven controls max risk per trade
     max_risk_pct = tier_config.max_risk_pct_proven if is_proven else tier_config.max_risk_pct_unproven
 
-    # Leverage
+    # Leverage — Angel One provides different margins per stock group
+    # Large caps (Nifty 50): 5x, Mid caps: 3x-4x, Others: 2x-3x
+    # For now: use 5x as default (most of our universe is Nifty 200 large/mid cap)
     leverage = tier_config.leverage
     if market_mode == MarketMode.HIGH_VOL:
-        leverage = 3.0  # reduce leverage in volatile markets
+        leverage = max(leverage - 2, 2.0)  # reduce leverage in volatile markets
 
     # ALLOCATION: Full capital for good setups, reduced only in HIGH_VOL
     if market_mode == MarketMode.HIGH_VOL:
