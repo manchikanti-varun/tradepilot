@@ -1893,7 +1893,7 @@ async def debug_gemini_test():
         try:
             url = "https://api.cerebras.ai/v1/chat/completions"
             payload = {
-                "model": "llama-3.3-70b",
+                "model": "gpt-oss-120b",
                 "messages": [{"role": "user", "content": "Say hello in JSON: {\"message\": \"hello\"}"}],
                 "temperature": 0.1, "max_tokens": 50,
             }
@@ -1906,7 +1906,7 @@ async def debug_gemini_test():
                         import json
                         data = json.loads(body)
                         text = data.get("choices", [{}])[0].get("message", {}).get("content", "")
-                        results["cerebras"] = {"status": "success", "model": "llama-3.3-70b", "response": text[:200]}
+                        results["cerebras"] = {"status": "success", "model": "gpt-oss-120b", "response": text[:200]}
                     else:
                         results["cerebras"] = {"status": "error", "http_status": status, "body": body[:300]}
         except Exception as e:

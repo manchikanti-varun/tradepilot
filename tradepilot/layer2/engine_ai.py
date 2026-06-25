@@ -353,7 +353,7 @@ async def analyze_with_gemini(symbol: str, data: dict) -> Optional[dict]:
     url = "https://api.cerebras.ai/v1/chat/completions"
 
     payload = {
-        "model": "llama-3.3-70b",
+        "model": "gpt-oss-120b",
         "messages": [{"role": "user", "content": prompt}],
         "temperature": 0.3,
         "max_tokens": 600,
