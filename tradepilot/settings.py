@@ -14,7 +14,7 @@ logger = logging.getLogger(__name__)
 
 # Default settings
 DEFAULTS = {
-    "capital": "5000",
+    "capital": "20000",
     "max_risk_pct": "12",
     "daily_loss_cap": "500",
     "max_trades_per_day": "4",

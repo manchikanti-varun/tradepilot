@@ -110,9 +110,9 @@ CREATE TABLE IF NOT EXISTS daily_state (
 -- Capital growth tracking
 CREATE TABLE IF NOT EXISTS growth_state (
     id INTEGER PRIMARY KEY CHECK (id = 1),
-    current_capital REAL NOT NULL DEFAULT 1000.0,
-    current_tier TEXT NOT NULL DEFAULT 'A',
-    peak_capital REAL NOT NULL DEFAULT 1000.0,
+    current_capital REAL NOT NULL DEFAULT 20000.0,
+    current_tier TEXT NOT NULL DEFAULT 'D',
+    peak_capital REAL NOT NULL DEFAULT 20000.0,
     capital_last_confirmed TEXT,
     is_proven_tier_a INTEGER DEFAULT 0,
     is_proven_tier_b INTEGER DEFAULT 0,
@@ -122,7 +122,7 @@ CREATE TABLE IF NOT EXISTS growth_state (
 
 -- Initialize growth state if not exists
 INSERT OR IGNORE INTO growth_state (id, current_capital, current_tier, peak_capital)
-VALUES (1, 1000.0, 'A', 1000.0);
+VALUES (1, 20000.0, 'D', 20000.0);
 
 -- Daily rejection log (Engine 22)
 CREATE TABLE IF NOT EXISTS rejection_log (
