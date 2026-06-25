@@ -1,6 +1,7 @@
 """Engine 4: Opportunity Discovery — morning universe filter + continuous scoring."""
 
 import asyncio
+import logging
 from datetime import datetime, timedelta
 from dataclasses import dataclass, field
 from typing import Optional
@@ -13,6 +14,8 @@ from tradepilot.config import (
     MIN_COMPOSITE_FOR_ENTRY, MIN_COMPOSITE_A_PLUS,
 )
 from tradepilot.layer1.base import MarketDataProvider, Instrument
+
+logger = logging.getLogger(__name__)
 
 
 @dataclass
@@ -139,8 +142,19 @@ async def score_stock(
             from_dt=now - timedelta(days=5),
             to_dt=now,
         )
+        # Fallback to daily candles if 5m data is insufficient
         if candles.empty or len(candles) < 30:
-            return None
+            logger.info("5m candles insufficient for %s (%d rows), trying 1d fallback",
+                        symbol, len(candles) if not candles.empty else 0)
+            candles = await market_data.get_candles(
+                symbol, "1d",
+                from_dt=now - timedelta(days=60),
+                to_dt=now,
+            )
+            if candles.empty or len(candles) < 15:
+                logger.warning("Daily candles also insufficient for %s (%d rows) — skipping",
+                               symbol, len(candles) if not candles.empty else 0)
+                return None
 
         ltp = float(candles["close"].iloc[-1])
         closes = candles["close"]
@@ -256,7 +270,8 @@ async def score_stock(
             timestamp=now,
         )
 
-    except Exception:
+    except Exception as e:
+        logger.warning("score_stock failed for %s: %s", symbol, str(e)[:100])
         return None
 
 
@@ -312,9 +327,20 @@ async def scan_and_score(
     results = await asyncio.gather(*tasks, return_exceptions=True)
 
     scores = []
+    errors = 0
+    nones = 0
     for r in results:
         if isinstance(r, StockScore):
             scores.append(r)
+        elif isinstance(r, Exception):
+            errors += 1
+        else:
+            nones += 1
+
+    logger.info(
+        "scan_and_score: %d scored, %d returned None (insufficient data), %d exceptions, from %d total",
+        len(scores), nones, errors, len(watchlist),
+    )
 
     # Sort by composite descending
     scores.sort(key=lambda s: s.composite, reverse=True)

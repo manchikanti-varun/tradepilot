@@ -492,3 +492,67 @@ async def trigger_monitor():
         "active_trade": state.active_trade.ticker if state.active_trade else None,
         "exit_signal": state.exit_signal.urgency if state.exit_signal else None,
     }
+
+
+@app.get("/api/debug/data-check")
+async def debug_data_check():
+    """Diagnose Yahoo Finance connectivity. Tests LTP + candles for 3 stocks."""
+    if not DEBUG_ENDPOINTS_ENABLED:
+        raise HTTPException(status_code=404, detail="Debug endpoints disabled")
+
+    import traceback
+    from tradepilot.layer1.yahoo_provider import YahooFinanceProvider
+    from datetime import timedelta
+
+    provider = YahooFinanceProvider()
+    test_symbols = ["RELIANCE", "TCS", "SBIN"]
+    results = {}
+
+    for sym in test_symbols:
+        result = {"ltp": None, "ltp_error": None, "candles_5m": None, "candles_1d": None, "candle_error": None}
+        # Test LTP
+        try:
+            ltp = await provider.get_ltp(sym)
+            result["ltp"] = ltp
+        except Exception as e:
+            result["ltp_error"] = f"{type(e).__name__}: {str(e)[:100]}"
+
+        # Test 5m candles
+        try:
+            now = datetime.now()
+            candles = await provider.get_candles(sym, "5m", from_dt=now - timedelta(days=5), to_dt=now)
+            result["candles_5m"] = {"rows": len(candles), "columns": list(candles.columns) if not candles.empty else []}
+            if not candles.empty:
+                result["candles_5m"]["last_close"] = float(candles["close"].iloc[-1])
+                result["candles_5m"]["first_timestamp"] = str(candles["timestamp"].iloc[0]) if "timestamp" in candles.columns else "no_ts_col"
+        except Exception as e:
+            result["candle_error"] = f"{type(e).__name__}: {str(e)[:150]}"
+            result["candle_traceback"] = traceback.format_exc()[-300:]
+
+        # Test 1d candles (fallback)
+        try:
+            now = datetime.now()
+            candles_1d = await provider.get_candles(sym, "1d", from_dt=now - timedelta(days=30), to_dt=now)
+            result["candles_1d"] = {"rows": len(candles_1d), "columns": list(candles_1d.columns) if not candles_1d.empty else []}
+            if not candles_1d.empty:
+                result["candles_1d"]["last_close"] = float(candles_1d["close"].iloc[-1])
+        except Exception as e:
+            result["candles_1d_error"] = f"{type(e).__name__}: {str(e)[:100]}"
+
+        results[sym] = result
+
+    # Also test VIX
+    try:
+        vix = await provider.get_vix()
+        results["_vix"] = vix
+    except Exception as e:
+        results["_vix_error"] = str(e)[:100]
+
+    # Test bulk LTP
+    try:
+        bulk = await provider.get_bulk_ltp(test_symbols)
+        results["_bulk_ltp"] = bulk
+    except Exception as e:
+        results["_bulk_ltp_error"] = str(e)[:100]
+
+    return results
