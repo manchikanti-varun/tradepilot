@@ -1915,29 +1915,8 @@ async def debug_gemini_test():
     else:
         results["openrouter"] = {"status": "not_configured", "fix": "Set OPENROUTER_API_KEY env var"}
 
-    # Test Gemini
-    gemini_key = os.environ.get("GEMINI_API_KEY", "")
-    if gemini_key:
-        try:
-            url = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash-lite:generateContent?key={gemini_key}"
-            payload = {"contents": [{"parts": [{"text": "Say hello in JSON: {\"message\": \"hello\"}"}]}],
-                       "generationConfig": {"temperature": 0.1, "maxOutputTokens": 50}}
-            async with aiohttp.ClientSession() as session:
-                async with session.post(url, json=payload, timeout=aiohttp.ClientTimeout(total=20)) as resp:
-                    status = resp.status
-                    body = await resp.text()
-                    if status == 200:
-                        import json
-                        data = json.loads(body)
-                        candidates = data.get("candidates", [])
-                        text = candidates[0].get("content", {}).get("parts", [{}])[0].get("text", "") if candidates else ""
-                        results["gemini"] = {"status": "success", "model": "gemini-2.5-flash-lite", "response": text[:200]}
-                    else:
-                        results["gemini"] = {"status": "error", "http_status": status, "body": body[:300]}
-        except Exception as e:
-            results["gemini"] = {"status": "error", "reason": str(e)[:200]}
-    else:
-        results["gemini"] = {"status": "not_configured", "fix": "Set GEMINI_API_KEY env var"}
+    # Test Gemini (removed — using OpenRouter instead)
+    results["gemini"] = {"status": "removed", "note": "Replaced by OpenRouter"}
 
     # Test Groq
     groq_key = os.environ.get("GROQ_API_KEY", "")
