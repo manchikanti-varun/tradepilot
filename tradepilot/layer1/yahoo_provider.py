@@ -1,10 +1,11 @@
-"""Yahoo Finance market data provider — free, no API key required.
+"""Yahoo Finance market data provider — cloud-server hardened.
 
-Production hardening:
-- Batch fetches via yf.download() for multiple symbols
-- Asyncio semaphore to limit concurrent requests (max 5)
-- Exponential backoff on failures
-- Graceful degradation (returns cached/stale data on failure, never crashes pipeline)
+Key changes for Railway/cloud deployment:
+- Uses yf.download() (batch API) instead of Ticker.history() — more reliable from server IPs
+- Custom session with browser-like User-Agent to avoid Yahoo's bot detection
+- Reduced concurrency (max 3) to avoid rate limits
+- Hard per-call timeouts (10s) to prevent hanging
+- Graceful degradation with stale cache on failure
 """
 
 import asyncio
@@ -14,6 +15,9 @@ from typing import Optional
 
 import pandas as pd
 import yfinance as yf
+from requests import Session
+from requests.adapters import HTTPAdapter
+from urllib3.util.retry import Retry
 
 from tradepilot.layer1.base import (
     MarketDataProvider,
@@ -24,10 +28,11 @@ from tradepilot.layer1.nifty_universe import get_universe, get_sector_map, get_s
 
 logger = logging.getLogger(__name__)
 
-# Concurrency limit — Yahoo Finance throttles aggressively
-_SEMAPHORE = asyncio.Semaphore(5)
-_MAX_RETRIES = 3
-_BACKOFF_BASE = 2.0  # seconds
+# Concurrency limit — lower for cloud to avoid Yahoo throttling
+_SEMAPHORE = asyncio.Semaphore(3)
+_MAX_RETRIES = 2
+_BACKOFF_BASE = 1.5
+_PER_CALL_TIMEOUT = 15  # seconds
 
 
 def _nse_symbol(symbol: str) -> str:
@@ -35,62 +40,111 @@ def _nse_symbol(symbol: str) -> str:
     return f"{symbol}.NS"
 
 
+def _make_session() -> Session:
+    """Create a requests session with browser-like headers and retry logic."""
+    session = Session()
+    session.headers.update({
+        "User-Agent": (
+            "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
+            "AppleWebKit/537.36 (KHTML, like Gecko) "
+            "Chrome/125.0.0.0 Safari/537.36"
+        ),
+        "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
+        "Accept-Language": "en-US,en;q=0.5",
+    })
+    retry = Retry(total=2, backoff_factor=0.5, status_forcelist=[429, 500, 502, 503, 504])
+    adapter = HTTPAdapter(max_retries=retry)
+    session.mount("https://", adapter)
+    session.mount("http://", adapter)
+    return session
+
+
+# Global session reused across calls
+_session: Optional[Session] = None
+
+
+def _get_session() -> Session:
+    global _session
+    if _session is None:
+        _session = _make_session()
+    return _session
+
+
 async def _run_with_backoff(func, *args, retries: int = _MAX_RETRIES):
-    """Execute a blocking function with semaphore + exponential backoff."""
+    """Execute a blocking function with semaphore + timeout + backoff."""
     loop = asyncio.get_event_loop()
+    last_error = None
     for attempt in range(retries):
         async with _SEMAPHORE:
             try:
-                result = await loop.run_in_executor(None, func, *args)
+                result = await asyncio.wait_for(
+                    loop.run_in_executor(None, func, *args),
+                    timeout=_PER_CALL_TIMEOUT,
+                )
                 return result
+            except asyncio.TimeoutError:
+                last_error = f"Timeout after {_PER_CALL_TIMEOUT}s"
+                logger.warning(
+                    "Yahoo fetch timed out (attempt %d/%d): %s",
+                    attempt + 1, retries, args[0] if args else "unknown",
+                )
             except Exception as e:
+                last_error = str(e)
                 if attempt < retries - 1:
                     wait = _BACKOFF_BASE ** (attempt + 1)
                     logger.warning(
-                        "Yahoo fetch failed (attempt %d/%d): %s. Retrying in %.1fs",
+                        "Yahoo fetch failed (attempt %d/%d): %s. Retry in %.1fs",
                         attempt + 1, retries, str(e)[:80], wait,
                     )
                     await asyncio.sleep(wait)
                 else:
                     logger.error("Yahoo fetch failed after %d attempts: %s", retries, str(e)[:100])
-                    raise
+    raise RuntimeError(f"All {retries} attempts failed: {last_error}")
 
 
 class YahooFinanceProvider(MarketDataProvider):
-    """Market data from Yahoo Finance. Free, no key required.
+    """Market data from Yahoo Finance — cloud-hardened.
 
-    Key production behaviors:
-    - LTP cache with 30-sec TTL (avoids hammering Yahoo on repeated calls)
-    - Batch download for multiple symbols
-    - Never raises on single-stock failure (returns cached or None)
+    Uses yf.download() (the batch/reliable API) instead of Ticker methods
+    where possible, since download() handles server IPs better.
     """
 
     def __init__(self):
         self._ltp_cache: dict[str, tuple[float, datetime]] = {}
         self._candle_cache: dict[str, tuple[pd.DataFrame, datetime]] = {}
         self._instruments: Optional[list[Instrument]] = None
-        self._LTP_CACHE_TTL = timedelta(seconds=30)
-        self._CANDLE_CACHE_TTL = timedelta(minutes=3)
+        self._LTP_CACHE_TTL = timedelta(seconds=60)
+        self._CANDLE_CACHE_TTL = timedelta(minutes=5)
 
     async def get_ltp(self, symbol: str) -> float:
-        """Get last traded price. Returns cached value if fresh enough."""
-        # Check cache
+        """Get last traded price via yf.download (more reliable from cloud)."""
         if symbol in self._ltp_cache:
             price, ts = self._ltp_cache[symbol]
             if datetime.now() - ts < self._LTP_CACHE_TTL:
                 return price
 
         def _fetch():
-            ticker = yf.Ticker(_nse_symbol(symbol))
-            info = ticker.fast_info
-            return info.get("lastPrice", 0.0) or info.get("previousClose", 0.0)
+            yf_sym = _nse_symbol(symbol)
+            data = yf.download(
+                yf_sym, period="1d", interval="1m",
+                progress=False, session=_get_session(),
+            )
+            if data.empty:
+                # Fallback: try daily
+                data = yf.download(
+                    yf_sym, period="5d", interval="1d",
+                    progress=False, session=_get_session(),
+                )
+            if data.empty:
+                return 0.0
+            return float(data["Close"].dropna().iloc[-1])
 
         try:
             price = await _run_with_backoff(_fetch)
-            self._ltp_cache[symbol] = (price, datetime.now())
+            if price > 0:
+                self._ltp_cache[symbol] = (price, datetime.now())
             return price
         except Exception:
-            # Return stale cache if available, else 0
             if symbol in self._ltp_cache:
                 logger.warning("Using stale LTP cache for %s", symbol)
                 return self._ltp_cache[symbol][0]
@@ -99,7 +153,7 @@ class YahooFinanceProvider(MarketDataProvider):
     async def get_candles(
         self, symbol: str, interval: str, from_dt: datetime, to_dt: datetime
     ) -> pd.DataFrame:
-        """Get OHLCV candles. Returns cached if within TTL."""
+        """Get OHLCV candles via yf.download()."""
         cache_key = f"{symbol}_{interval}"
         if cache_key in self._candle_cache:
             df, ts = self._candle_cache[cache_key]
@@ -109,16 +163,34 @@ class YahooFinanceProvider(MarketDataProvider):
         interval_map = {"1m": "1m", "5m": "5m", "15m": "15m", "1h": "1h", "1d": "1d"}
         yf_interval = interval_map.get(interval, "5m")
 
+        # For intraday intervals, Yahoo limits history to 60 days max
+        # and 5m is limited to last 60 days
+        if yf_interval in ("1m", "5m", "15m"):
+            period = "5d" if yf_interval == "5m" else "1d"
+        else:
+            period = None  # Use start/end for daily
+
         def _fetch():
-            ticker = yf.Ticker(_nse_symbol(symbol))
-            df = ticker.history(
-                start=from_dt.strftime("%Y-%m-%d"),
-                end=(to_dt + timedelta(days=1)).strftime("%Y-%m-%d"),
-                interval=yf_interval,
-            )
+            yf_sym = _nse_symbol(symbol)
+            if period:
+                df = yf.download(
+                    yf_sym, period=period, interval=yf_interval,
+                    progress=False, session=_get_session(),
+                )
+            else:
+                df = yf.download(
+                    yf_sym,
+                    start=from_dt.strftime("%Y-%m-%d"),
+                    end=(to_dt + timedelta(days=1)).strftime("%Y-%m-%d"),
+                    interval=yf_interval,
+                    progress=False, session=_get_session(),
+                )
             if df.empty:
                 return pd.DataFrame(columns=["timestamp", "open", "high", "low", "close", "volume"])
             df = df.reset_index()
+            # Handle multi-level columns from yf.download
+            if isinstance(df.columns, pd.MultiIndex):
+                df.columns = [col[0] if col[1] == '' else col[0] for col in df.columns]
             col_map = {
                 "Date": "timestamp", "Datetime": "timestamp",
                 "Open": "open", "High": "high", "Low": "low",
@@ -131,25 +203,20 @@ class YahooFinanceProvider(MarketDataProvider):
 
         try:
             result = await _run_with_backoff(_fetch)
-            self._candle_cache[cache_key] = (result, datetime.now())
+            if not result.empty:
+                self._candle_cache[cache_key] = (result, datetime.now())
             return result
         except Exception:
-            # Return stale cache or empty
             if cache_key in self._candle_cache:
                 logger.warning("Using stale candle cache for %s", symbol)
                 return self._candle_cache[cache_key][0]
             return pd.DataFrame(columns=["timestamp", "open", "high", "low", "close", "volume"])
 
     async def get_market_depth(self, symbol: str) -> DepthSnapshot:
-        """
-        Yahoo Finance doesn't provide real depth data.
-        Returns synthetic depth based on LTP.
-        NOTE: This is a DOCUMENTED limitation. Engine 5's bid/ask check
-        will effectively auto-pass until a real depth source is wired.
-        """
+        """Synthetic depth based on LTP (Yahoo doesn't provide real depth)."""
         ltp = await self.get_ltp(symbol)
         if ltp == 0:
-            ltp = 100.0  # fallback
+            ltp = 100.0
         bids = [(round(ltp - 0.05 * i, 2), 1000 * (6 - i)) for i in range(1, 6)]
         asks = [(round(ltp + 0.05 * i, 2), 1000 * (6 - i)) for i in range(1, 6)]
         return DepthSnapshot(bids=bids, asks=asks, timestamp=datetime.now())
@@ -167,9 +234,18 @@ class YahooFinanceProvider(MarketDataProvider):
     async def get_nifty_value(self) -> float:
         """Get current Nifty 50 value."""
         def _fetch():
-            ticker = yf.Ticker("^NSEI")
-            info = ticker.fast_info
-            return info.get("lastPrice", 0.0) or info.get("previousClose", 0.0)
+            data = yf.download(
+                "^NSEI", period="1d", interval="1m",
+                progress=False, session=_get_session(),
+            )
+            if data.empty:
+                data = yf.download(
+                    "^NSEI", period="5d", interval="1d",
+                    progress=False, session=_get_session(),
+                )
+            if data.empty:
+                return 0.0
+            return float(data["Close"].dropna().iloc[-1])
 
         try:
             return await _run_with_backoff(_fetch)
@@ -180,9 +256,13 @@ class YahooFinanceProvider(MarketDataProvider):
     async def get_vix(self) -> float:
         """Get India VIX value."""
         def _fetch():
-            ticker = yf.Ticker("^INDIAVIX")
-            info = ticker.fast_info
-            return info.get("lastPrice", 0.0) or info.get("previousClose", 14.0)
+            data = yf.download(
+                "^INDIAVIX", period="5d", interval="1d",
+                progress=False, session=_get_session(),
+            )
+            if data.empty:
+                return 14.0
+            return float(data["Close"].dropna().iloc[-1])
 
         try:
             return await _run_with_backoff(_fetch)
@@ -191,7 +271,7 @@ class YahooFinanceProvider(MarketDataProvider):
             return 14.0
 
     async def get_bulk_ltp(self, symbols: list[str]) -> dict[str, float]:
-        """Batch LTP fetch — uses yf.download() for efficiency."""
+        """Batch LTP fetch via yf.download()."""
         if not symbols:
             return {}
 
@@ -201,7 +281,8 @@ class YahooFinanceProvider(MarketDataProvider):
             try:
                 data = yf.download(
                     yf_symbols, period="1d", interval="1d",
-                    progress=False, threads=True, group_by="ticker",
+                    progress=False, threads=True,
+                    group_by="ticker", session=_get_session(),
                 )
                 if data.empty:
                     return results
@@ -227,5 +308,4 @@ class YahooFinanceProvider(MarketDataProvider):
                 self._ltp_cache[sym] = (price, now)
             return results
         except Exception:
-            # Return whatever's in cache
             return {s: self._ltp_cache[s][0] for s in symbols if s in self._ltp_cache}

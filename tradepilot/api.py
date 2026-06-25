@@ -501,6 +501,7 @@ async def debug_data_check():
         raise HTTPException(status_code=404, detail="Debug endpoints disabled")
 
     import traceback
+    import asyncio
     from tradepilot.layer1.yahoo_provider import YahooFinanceProvider
     from datetime import timedelta
 
@@ -510,32 +511,42 @@ async def debug_data_check():
 
     for sym in test_symbols:
         result = {"ltp": None, "ltp_error": None, "candles_5m": None, "candles_1d": None, "candle_error": None}
-        # Test LTP
+        # Test LTP (with 12s timeout)
         try:
-            ltp = await provider.get_ltp(sym)
+            ltp = await asyncio.wait_for(provider.get_ltp(sym), timeout=12)
             result["ltp"] = ltp
+        except asyncio.TimeoutError:
+            result["ltp_error"] = "TIMEOUT after 12s"
         except Exception as e:
             result["ltp_error"] = f"{type(e).__name__}: {str(e)[:100]}"
 
-        # Test 5m candles
+        # Test 5m candles (with 12s timeout)
         try:
             now = datetime.now()
-            candles = await provider.get_candles(sym, "5m", from_dt=now - timedelta(days=5), to_dt=now)
+            candles = await asyncio.wait_for(
+                provider.get_candles(sym, "5m", from_dt=now - timedelta(days=5), to_dt=now),
+                timeout=12,
+            )
             result["candles_5m"] = {"rows": len(candles), "columns": list(candles.columns) if not candles.empty else []}
             if not candles.empty:
                 result["candles_5m"]["last_close"] = float(candles["close"].iloc[-1])
-                result["candles_5m"]["first_timestamp"] = str(candles["timestamp"].iloc[0]) if "timestamp" in candles.columns else "no_ts_col"
+        except asyncio.TimeoutError:
+            result["candle_error"] = "TIMEOUT after 12s"
         except Exception as e:
             result["candle_error"] = f"{type(e).__name__}: {str(e)[:150]}"
-            result["candle_traceback"] = traceback.format_exc()[-300:]
 
-        # Test 1d candles (fallback)
+        # Test 1d candles (with 12s timeout)
         try:
             now = datetime.now()
-            candles_1d = await provider.get_candles(sym, "1d", from_dt=now - timedelta(days=30), to_dt=now)
+            candles_1d = await asyncio.wait_for(
+                provider.get_candles(sym, "1d", from_dt=now - timedelta(days=30), to_dt=now),
+                timeout=12,
+            )
             result["candles_1d"] = {"rows": len(candles_1d), "columns": list(candles_1d.columns) if not candles_1d.empty else []}
             if not candles_1d.empty:
                 result["candles_1d"]["last_close"] = float(candles_1d["close"].iloc[-1])
+        except asyncio.TimeoutError:
+            result["candles_1d_error"] = "TIMEOUT after 12s"
         except Exception as e:
             result["candles_1d_error"] = f"{type(e).__name__}: {str(e)[:100]}"
 
@@ -543,16 +554,11 @@ async def debug_data_check():
 
     # Also test VIX
     try:
-        vix = await provider.get_vix()
+        vix = await asyncio.wait_for(provider.get_vix(), timeout=12)
         results["_vix"] = vix
+    except asyncio.TimeoutError:
+        results["_vix_error"] = "TIMEOUT after 12s"
     except Exception as e:
         results["_vix_error"] = str(e)[:100]
-
-    # Test bulk LTP
-    try:
-        bulk = await provider.get_bulk_ltp(test_symbols)
-        results["_bulk_ltp"] = bulk
-    except Exception as e:
-        results["_bulk_ltp_error"] = str(e)[:100]
 
     return results
