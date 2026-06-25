@@ -25,7 +25,7 @@ import aiohttp
 logger = logging.getLogger(__name__)
 
 GROQ_API_KEY = os.environ.get("GROQ_API_KEY", "")
-OPENROUTER_API_KEY = os.environ.get("OPENROUTER_API_KEY", "")
+CEREBRAS_API_KEY = os.environ.get("CEREBRAS_API_KEY", "")
 
 
 # ═══════════════════════════════════════════════════════════════
@@ -344,72 +344,47 @@ Respond ONLY in this JSON format:
 
 
 async def analyze_with_gemini(symbol: str, data: dict) -> Optional[dict]:
-    """Get analysis from second AI via OpenRouter (free models)."""
-    if not OPENROUTER_API_KEY:
-        logger.warning("OPENROUTER_API_KEY not set")
+    """Get analysis from second AI via Cerebras (fastest free inference)."""
+    if not CEREBRAS_API_KEY:
+        logger.warning("CEREBRAS_API_KEY not set")
         return None
 
     prompt = _build_prompt(symbol, data)
-    url = "https://openrouter.ai/api/v1/chat/completions"
+    url = "https://api.cerebras.ai/v1/chat/completions"
 
-    # Try models in order of reliability
-    models_to_try = [
-        "qwen/qwen3-30b-a3b:free",
-        "open-r1/olympiccoder-7b:free",
-        "qwen/qwen3-14b:free",
-        "nvidia/llama-3.1-nemotron-70b-instruct:free",
-        "deepseek/deepseek-chat-v3-0324:free",
-    ]
-
-    headers = {
-        "Authorization": f"Bearer {OPENROUTER_API_KEY}",
-        "Content-Type": "application/json",
-        "HTTP-Referer": "https://tradepilot.app",
-        "X-Title": "TradePilot AI",
+    payload = {
+        "model": "llama-3.3-70b",
+        "messages": [{"role": "user", "content": prompt}],
+        "temperature": 0.3,
+        "max_tokens": 600,
     }
 
-    for model in models_to_try:
-        payload = {
-            "model": model,
-            "messages": [{"role": "user", "content": prompt}],
-            "temperature": 0.3,
-            "max_tokens": 600,
-        }
+    headers = {
+        "Authorization": f"Bearer {CEREBRAS_API_KEY}",
+        "Content-Type": "application/json",
+    }
 
-        try:
-            async with aiohttp.ClientSession() as session:
-                async with session.post(url, json=payload, headers=headers, timeout=aiohttp.ClientTimeout(total=45)) as resp:
-                    if resp.status != 200:
-                        body = await resp.text()
-                        logger.warning("OpenRouter model %s returned %d: %s", model, resp.status, body[:150])
-                        continue  # Try next model
-                    result = await resp.json()
+    try:
+        async with aiohttp.ClientSession() as session:
+            async with session.post(url, json=payload, headers=headers, timeout=aiohttp.ClientTimeout(total=30)) as resp:
+                if resp.status != 200:
+                    body = await resp.text()
+                    logger.warning("Cerebras returned %d: %s", resp.status, body[:200])
+                    return None
+                result = await resp.json()
 
-            # Check for error in response body
-            if result.get("error"):
-                logger.warning("OpenRouter model %s error: %s", model, str(result["error"])[:150])
-                continue
+        text = result.get("choices", [{}])[0].get("message", {}).get("content", "")
+        if not text:
+            logger.warning("Cerebras returned empty response")
+            return None
+        return _parse_ai_response(text, "Cerebras")
 
-            text = result.get("choices", [{}])[0].get("message", {}).get("content", "")
-            if not text:
-                logger.warning("OpenRouter model %s returned empty response", model)
-                continue
-
-            parsed = _parse_ai_response(text, "OpenRouter")
-            if parsed:
-                logger.info("OpenRouter analysis succeeded with model: %s", model)
-                return parsed
-            continue  # Parse failed, try next model
-
-        except asyncio.TimeoutError:
-            logger.warning("OpenRouter model %s timed out", model)
-            continue
-        except Exception as e:
-            logger.warning("OpenRouter model %s failed: %s", model, str(e)[:100])
-            continue
-
-    logger.warning("All OpenRouter models failed for %s", symbol)
-    return None
+    except asyncio.TimeoutError:
+        logger.warning("Cerebras timed out")
+        return None
+    except Exception as e:
+        logger.warning("Cerebras failed: %s", str(e)[:150])
+        return None
 
 
 async def analyze_with_groq(symbol: str, data: dict) -> Optional[dict]:

@@ -1887,36 +1887,35 @@ async def debug_gemini_test():
 
     results = {}
 
-    # Test OpenRouter
-    openrouter_key = os.environ.get("OPENROUTER_API_KEY", "")
-    if openrouter_key:
+    # Test Cerebras (second AI)
+    cerebras_key = os.environ.get("CEREBRAS_API_KEY", "")
+    if cerebras_key:
         try:
-            url = "https://openrouter.ai/api/v1/chat/completions"
+            url = "https://api.cerebras.ai/v1/chat/completions"
             payload = {
-                "model": "qwen/qwen3-30b-a3b:free",
+                "model": "llama-3.3-70b",
                 "messages": [{"role": "user", "content": "Say hello in JSON: {\"message\": \"hello\"}"}],
                 "temperature": 0.1, "max_tokens": 50,
             }
-            headers = {"Authorization": f"Bearer {openrouter_key}", "Content-Type": "application/json",
-                       "HTTP-Referer": "https://tradepilot.app", "X-Title": "TradePilot AI"}
+            headers = {"Authorization": f"Bearer {cerebras_key}", "Content-Type": "application/json"}
             async with aiohttp.ClientSession() as session:
-                async with session.post(url, json=payload, headers=headers, timeout=aiohttp.ClientTimeout(total=20)) as resp:
+                async with session.post(url, json=payload, headers=headers, timeout=aiohttp.ClientTimeout(total=15)) as resp:
                     status = resp.status
                     body = await resp.text()
                     if status == 200:
                         import json
                         data = json.loads(body)
                         text = data.get("choices", [{}])[0].get("message", {}).get("content", "")
-                        results["openrouter"] = {"status": "success", "model": "qwen3-30b-a3b", "response": text[:200]}
+                        results["cerebras"] = {"status": "success", "model": "llama-3.3-70b", "response": text[:200]}
                     else:
-                        results["openrouter"] = {"status": "error", "http_status": status, "body": body[:300]}
+                        results["cerebras"] = {"status": "error", "http_status": status, "body": body[:300]}
         except Exception as e:
-            results["openrouter"] = {"status": "error", "reason": str(e)[:200]}
+            results["cerebras"] = {"status": "error", "reason": str(e)[:200]}
     else:
-        results["openrouter"] = {"status": "not_configured", "fix": "Set OPENROUTER_API_KEY env var"}
+        results["cerebras"] = {"status": "not_configured", "fix": "Set CEREBRAS_API_KEY env var — get it free at cerebras.ai"}
 
-    # Test Gemini (removed — using OpenRouter instead)
-    results["gemini"] = {"status": "removed", "note": "Replaced by OpenRouter"}
+    # Gemini removed
+    results["openrouter"] = {"status": "removed", "note": "Replaced by Cerebras"}
 
     # Test Groq
     groq_key = os.environ.get("GROQ_API_KEY", "")
