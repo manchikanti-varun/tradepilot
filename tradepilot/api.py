@@ -1110,34 +1110,6 @@ async def create_price_alert(request: PriceAlertRequest):
         )
         await db.commit()
     return {"status": "created", "symbol": request.symbol, "target": request.target_price}
-            "confidence": ai_result["confidence"],
-            "gemini": ai_result.get("gemini"),
-            "groq": ai_result.get("groq"),
-            "reasoning": ai_result.get("reasoning", []),
-        },
-        "entry_price": round(entry_price, 2),
-        "stop_loss": round(stop_loss, 2),
-        "targets": [
-            {"level": 1, "price": round(target_1, 2), "label": "Target 1"},
-            {"level": 2, "price": round(target_2, 2), "label": "Target 2"},
-        ],
-        "risk_reward": rr_ratio,
-        "suggested_qty": suggested_qty,
-        "capital_required": round(suggested_qty * ltp / leverage, 2),
-        "estimated_charges": round(charges, 2),
-        "charges_breakdown": {
-            "brokerage": charge_breakdown.brokerage,
-            "stt": charge_breakdown.stt,
-            "exchange_txn": charge_breakdown.exchange_txn,
-            "gst": charge_breakdown.gst,
-            "stamp_duty": charge_breakdown.stamp_duty,
-            "sebi": charge_breakdown.sebi,
-            "total": charge_breakdown.total,
-        },
-        "net_profit_target1": round(net_profit_t1, 2),
-        "risk_per_share": round(risk_per_share, 2),
-        "indicators": stock_data,
-    }
 
 
 # Old stock plan code removed — AI analysis above handles everything
