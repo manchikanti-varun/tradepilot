@@ -24,33 +24,53 @@ GROQ_API_KEY = os.environ.get("GROQ_API_KEY", "")
 
 
 def _build_prompt(symbol: str, data: dict) -> str:
-    """Build the analysis prompt from stock data."""
-    return f"""You are an expert intraday stock trader for NSE India. Analyze this stock and give a clear trading recommendation.
+    """Build comprehensive analysis prompt — AI sees everything and decides."""
+    price_history = data.get('price_history', 'Not available')
 
-Stock: {symbol}
-Current Price: ₹{data.get('ltp', 0)}
-Today's High: ₹{data.get('day_high', 0)}
-Today's Low: ₹{data.get('day_low', 0)}
-RSI (14): {data.get('rsi', 50)}
-EMA9: ₹{data.get('ema9', 0)}
-EMA21: ₹{data.get('ema21', 0)}
-MACD Histogram: {data.get('macd', 0)}
-VWAP: ₹{data.get('vwap', 0)}
-Volume vs Average: {data.get('volume_ratio', 1.0)}x
-ATR (Daily): ₹{data.get('atr', 0)}
-Support: ₹{data.get('support', 0)}
-Resistance: ₹{data.get('resistance', 0)}
+    return f"""You are a professional intraday trader analyzing NSE India stocks. Give a complete trading analysis.
 
-Respond in this EXACT JSON format only, no other text:
+STOCK: {symbol}
+CURRENT PRICE: ₹{data.get('ltp', 0)}
+
+TODAY'S DATA:
+- Day High: ₹{data.get('day_high', 0)}
+- Day Low: ₹{data.get('day_low', 0)}
+- VWAP: ₹{data.get('vwap', 0)}
+- Volume vs Average: {data.get('volume_ratio', 1.0)}x
+
+TECHNICAL INDICATORS:
+- RSI (14): {data.get('rsi', 50)}
+- EMA 9: ₹{data.get('ema9', 0)}
+- EMA 21: ₹{data.get('ema21', 0)}
+- MACD Histogram: {data.get('macd', 0)} ({'bullish' if data.get('macd', 0) > 0 else 'bearish'})
+- Daily ATR: ₹{data.get('atr', 0)}
+
+KEY LEVELS:
+- Support: ₹{data.get('support', 0)}
+- Resistance: ₹{data.get('resistance', 0)}
+
+LAST 5 DAYS:
+{price_history}
+
+ANALYZE THIS STOCK COMPLETELY. Consider:
+1. Is the trend bullish, bearish, or sideways?
+2. Is this a good time to enter or should I wait?
+3. Where exactly should I buy?
+4. Where should I place my stop loss?
+5. What are realistic profit targets for today?
+6. What is the risk-reward ratio?
+7. Any warnings or red flags?
+
+Respond ONLY in this JSON format:
 {{
   "action": "BUY" or "SELL" or "WAIT",
   "confidence": "HIGH" or "MEDIUM" or "LOW",
-  "entry_price": number,
-  "stop_loss": number,
-  "target_1": number,
-  "target_2": number,
-  "risk_reward": number,
-  "reasoning": "2-3 sentence explanation in simple English why this trade makes sense or why to avoid"
+  "entry_price": exact price to enter,
+  "stop_loss": exact stop loss price,
+  "target_1": first target price,
+  "target_2": second target price,
+  "risk_reward": number like 1.5 or 2.0,
+  "reasoning": "3-4 sentences explaining your complete analysis in simple language. Why buy/wait, what the chart is showing, key levels to watch, and any risks."
 }}"""
 
 

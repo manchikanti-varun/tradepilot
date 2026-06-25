@@ -783,14 +783,133 @@ async def get_chart_data(symbol: str, interval: str = "5m"):
 
 @app.get("/api/stock/{symbol}/plan")
 async def get_stock_trading_plan(symbol: str):
-    """Generate a complete trading plan for a stock — AI-powered dual analysis."""
+    """100% AI-driven stock analysis. Feeds all data to AI, returns its verdict."""
     from datetime import timedelta
     from tradepilot.layer2.engine4_discovery import (
-        compute_rsi, compute_vwap, compute_macd, compute_ema, compute_atr, score_stock
+        compute_rsi, compute_vwap, compute_macd, compute_ema, compute_atr
     )
-    from tradepilot.layer2.engine8_charges import calculate_angel_charges
-    from tradepilot.layer2.engine21_growth import get_growth_state
     from tradepilot.layer2.engine_ai import dual_ai_analysis
+    from tradepilot.layer2.engine21_growth import get_growth_state
+
+    state = get_state()
+    now = datetime.now()
+
+    # Gather ALL data for AI to analyze
+    candles_5m = await state.market_data.get_candles(symbol, "5m", now - timedelta(days=5), now)
+    candles_1d = await state.market_data.get_candles(symbol, "1d", now - timedelta(days=30), now)
+
+    if candles_5m.empty or len(candles_5m) < 10:
+        raise HTTPException(status_code=404, detail=f"No data for {symbol}")
+
+    ltp = float(candles_5m["close"].iloc[-1])
+    closes = candles_5m["close"]
+    highs = candles_5m["high"]
+    lows = candles_5m["low"]
+    volumes = candles_5m["volume"]
+
+    # Compute all indicators — these are just DATA for AI to interpret
+    rsi = compute_rsi(closes)
+    vwap = compute_vwap(candles_5m)
+    _, _, macd_hist = compute_macd(closes)
+    ema9 = compute_ema(closes, 9)
+    ema21 = compute_ema(closes, 21)
+    daily_atr = compute_atr(candles_1d) if not candles_1d.empty and len(candles_1d) >= 5 else 0
+
+    recent_vol = float(volumes.iloc[-5:].mean()) if len(volumes) >= 5 else 0
+    avg_vol = float(volumes.iloc[-20:].mean()) if len(volumes) >= 20 else recent_vol
+    volume_ratio = recent_vol / avg_vol if avg_vol > 0 else 1.0
+
+    day_high = float(highs.iloc[-78:].max()) if len(highs) >= 78 else float(highs.max())
+    day_low = float(lows.iloc[-78:].min()) if len(lows) >= 78 else float(lows.min())
+    support = float(lows.iloc[-30:].min()) if len(lows) >= 30 else day_low
+    resistance = float(highs.iloc[-30:].max()) if len(highs) >= 30 else day_high
+
+    # 5-day price history for AI context
+    price_history = ""
+    if not candles_1d.empty:
+        for _, row in candles_1d.tail(5).iterrows():
+            price_history += f"  {str(row.get('timestamp', ''))[:10]}: O={row['open']:.1f} H={row['high']:.1f} L={row['low']:.1f} C={row['close']:.1f}\n"
+
+    # Build comprehensive data package for AI
+    stock_data = {
+        "ltp": round(ltp, 2),
+        "day_high": round(day_high, 2),
+        "day_low": round(day_low, 2),
+        "rsi": round(rsi, 1),
+        "ema9": round(ema9, 2),
+        "ema21": round(ema21, 2),
+        "macd": round(macd_hist, 4),
+        "vwap": round(vwap, 2),
+        "volume_ratio": round(volume_ratio, 2),
+        "atr": round(daily_atr, 2),
+        "support": round(support, 2),
+        "resistance": round(resistance, 2),
+        "price_history": price_history,
+    }
+
+    # Let AI analyze everything
+    ai_result = await dual_ai_analysis(symbol, stock_data)
+
+    # Get capital info
+    growth = await get_growth_state()
+    capital = growth.current_capital
+    leverage = 5.0
+
+    # Use AI's entry/stop/target — not our calculations
+    entry = ai_result.get("entry_price") or ltp
+    stop = ai_result.get("stop_loss") or round(ltp - daily_atr * 0.3, 2)
+    t1 = ai_result.get("target_1") or round(ltp + daily_atr * 0.5, 2)
+    t2 = ai_result.get("target_2") or round(ltp + daily_atr * 0.8, 2)
+    rr = ai_result.get("risk_reward") or 0
+
+    # Position sizing from AI's levels
+    risk_per_share = max(entry - stop, 0.5)
+    max_qty = int((capital * leverage) // ltp)
+    max_loss = capital * 0.02
+    qty = min(max_qty, int(max_loss / risk_per_share) if risk_per_share > 0 else max_qty)
+
+    # Charges
+    from tradepilot.layer2.engine8_charges import calculate_angel_charges
+    charges, breakdown = calculate_angel_charges(qty, entry, t1)
+    net_profit = qty * (t1 - entry) - charges
+
+    # Sector
+    from tradepilot.layer1.nifty_universe import get_sector_map
+    sector = get_sector_map().get(symbol, "Unknown")
+
+    return {
+        "symbol": symbol,
+        "sector": sector,
+        "ltp": ltp,
+        "ai_analysis": {
+            "verdict": ai_result["verdict"],
+            "confidence": ai_result["confidence"],
+            "action": ai_result.get("action", "WAIT"),
+            "reasoning": ai_result.get("reasoning", []),
+            "gemini_says": ai_result.get("gemini", {}).get("reasoning") if ai_result.get("gemini") else None,
+            "groq_says": ai_result.get("groq", {}).get("reasoning") if ai_result.get("groq") else None,
+        },
+        "entry_price": entry,
+        "stop_loss": stop,
+        "targets": [
+            {"level": 1, "price": t1, "label": "Target 1"},
+            {"level": 2, "price": t2, "label": "Target 2"},
+        ],
+        "risk_reward": rr,
+        "suggested_qty": qty,
+        "capital_required": round(qty * entry / leverage, 2),
+        "estimated_charges": round(charges, 2),
+        "charges_breakdown": {
+            "brokerage": breakdown.brokerage, "stt": breakdown.stt,
+            "exchange_txn": breakdown.exchange_txn, "gst": breakdown.gst,
+            "stamp_duty": breakdown.stamp_duty, "sebi": breakdown.sebi, "total": breakdown.total,
+        },
+        "net_profit_target1": round(net_profit, 2),
+        "risk_per_share": round(risk_per_share, 2),
+        "indicators": stock_data,
+        "trend": "BULLISH" if ema9 > ema21 and macd_hist > 0 else "BEARISH" if ema9 < ema21 and macd_hist < 0 else "SIDEWAYS",
+        "trend_description": ai_result.get("reasoning", [""])[0] if ai_result.get("reasoning") else "",
+    }
 
     state = get_state()
     now = datetime.now()
