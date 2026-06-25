@@ -124,6 +124,21 @@ def compute_allocation(
     if progress_pct_to_next_tier >= 85:
         near_boundary_note = " [Near tier boundary — protect gains]"
 
+    # FIX 4.3: Gap-down protection — cap exposure if gap scenario would exceed 20% capital loss
+    gap_scenario_loss = qty * ltp * 0.05  # 5% gap below stop (circuit scenario)
+    if gap_scenario_loss > current_capital * 0.20:
+        qty = int((current_capital * 0.20) / (ltp * 0.05))
+        stop_loss_amount = qty * (ltp - stop_price)
+        if qty == 0:
+            return AllocationResult(
+                capital_to_use=capital_to_use, exposure=exposure, qty=0,
+                stop_price=0, stop_loss_amount=0,
+                allocation_pct=allocation_pct, leverage=leverage,
+                max_risk_pct=max_risk_pct, tier=tier,
+                message="Gap-down risk too high for current capital.",
+                viable=False,
+            )
+
     message = (
         f"BUY {qty} shares @ ~₹{ltp:.2f} — full conviction trade."
         f" Stop: ₹{stop_price:.2f} | Max risk: ₹{stop_loss_amount:.2f} ({max_risk_pct}% cap)"

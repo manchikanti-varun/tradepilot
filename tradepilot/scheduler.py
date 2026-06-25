@@ -103,9 +103,15 @@ def setup_scheduler():
 
 
 async def _live_pipeline_wrapper():
-    """Only run 9:15-15:10 IST on weekdays."""
+    """Run 9:15-15:10 IST on weekdays. Pipeline starts at 9:15 for data warmup,
+    but signal generation is gated by candle freshness inside the pipeline itself
+    (Engine 5 blocks entries before 9:20 anyway)."""
     now = now_ist()
     if now.weekday() >= 5:
+        return
+    # FIX 6.3: Skip NSE weekday holidays
+    from tradepilot.config import NSE_HOLIDAYS
+    if now.strftime("%Y-%m-%d") in NSE_HOLIDAYS:
         return
     if now.hour < 9 or (now.hour == 9 and now.minute < 15):
         return
@@ -119,6 +125,10 @@ async def _position_monitor_wrapper():
     now = now_ist()
     if now.weekday() >= 5:
         return
+    # FIX 6.3: Skip NSE weekday holidays
+    from tradepilot.config import NSE_HOLIDAYS
+    if now.strftime("%Y-%m-%d") in NSE_HOLIDAYS:
+        return
     if now.hour < 9 or (now.hour == 9 and now.minute < 15):
         return
     if now.hour > 15 or (now.hour == 15 and now.minute > 30):
@@ -129,7 +139,13 @@ async def _position_monitor_wrapper():
 
 
 async def _eod_processing():
-    """3:45 PM — Engine 12 + Engine 23."""
+    """3:45 PM — Engine 12 + Engine 23 + FIX 6.2: EOD signal cleanup + FIX 7.1: outcome tracking."""
+    # FIX 6.2: Clear stale signals at EOD
+    state = get_state()
+    state.signals = []
+    state.exit_signal = None
+    logger.info("EOD cleanup: signals and exit_signal cleared")
+
     try:
         from tradepilot.layer2.engine12_learning import write_daily_summary
         await write_daily_summary()
@@ -146,6 +162,12 @@ async def _eod_processing():
         except Exception as e:
             logger.error("EOD Engine 23 failed: %s", e)
 
+    # FIX 7.1: Update signal outcomes at EOD
+    try:
+        await _update_signal_outcomes()
+    except Exception as e:
+        logger.error("Signal outcome update failed: %s", e)
+
 
 async def _daily_coach():
     """4 PM — Engine 18."""
@@ -157,6 +179,49 @@ async def _daily_coach():
         logger.info("Coach: %s", report.headline[:60])
     except Exception as e:
         logger.error("Engine 18 failed: %s", e)
+
+
+async def _update_signal_outcomes():
+    """FIX 7.1: Check today's signals and mark outcomes based on EOD close prices."""
+    from tradepilot.database import get_db
+    today = now_ist().strftime("%Y-%m-%d")
+    state = get_state()
+    async with get_db() as db:
+        rows = await db.execute(
+            "SELECT id, symbol, ltp, target, stop_price FROM signal_history WHERE date = ? AND outcome = 'PENDING'",
+            (today,),
+        )
+        updated = 0
+        async for row in rows:
+            try:
+                candles = await state.market_data.get_candles(
+                    row["symbol"], "5m",
+                    from_dt=now_ist().replace(hour=9, minute=15),
+                    to_dt=now_ist(),
+                )
+                if candles.empty:
+                    continue
+                day_high = float(candles["high"].max())
+                day_low = float(candles["low"].min())
+                close = float(candles["close"].iloc[-1])
+
+                if row["target"] and day_high >= row["target"]:
+                    outcome = "TARGET_HIT"
+                elif row["stop_price"] and day_low <= row["stop_price"]:
+                    outcome = "STOP_HIT"
+                else:
+                    outcome = "EXPIRED_NEUTRAL"
+
+                await db.execute(
+                    "UPDATE signal_history SET outcome = ? WHERE id = ?",
+                    (outcome, row["id"]),
+                )
+                updated += 1
+            except Exception:
+                continue
+        await db.commit()
+        if updated:
+            logger.info("Signal outcomes updated: %d signals", updated)
 
 
 async def _weekly_reports():
@@ -203,14 +268,28 @@ async def _nightly_backup():
 
 
 async def _reset_daily_state():
-    """Midnight — prepare tomorrow's state."""
+    """FIX 4.1: Carry consecutive losses across day boundaries, then prepare tomorrow's state."""
     try:
         from tradepilot.database import get_db
+        today = date.today().isoformat()
         tomorrow = (date.today() + timedelta(days=1)).isoformat()
         async with get_db() as db:
-            await db.execute("INSERT OR IGNORE INTO daily_state (date) VALUES (?)", (tomorrow,))
+            # FIX 4.1: Read today's ending consecutive_losses to carry forward
+            row = await db.execute(
+                "SELECT consecutive_losses FROM daily_state WHERE date = ?", (today,)
+            )
+            today_state = await row.fetchone()
+            carry_forward = 0
+            if today_state and today_state["consecutive_losses"] and today_state["consecutive_losses"] > 0:
+                carry_forward = today_state["consecutive_losses"]
+
+            # Insert tomorrow's row with carried-forward consecutive losses
+            await db.execute(
+                "INSERT OR IGNORE INTO daily_state (date, consecutive_losses) VALUES (?, ?)",
+                (tomorrow, carry_forward),
+            )
             await db.commit()
-        logger.info("Daily state reset for %s", tomorrow)
+        logger.info("Daily state reset for %s (carried %d consecutive losses)", tomorrow, carry_forward)
     except Exception as e:
         logger.error("Daily reset failed: %s", e)
 

@@ -4,10 +4,14 @@ Phase 1 adds: FII/DII data, sectoral indices, broader market internals.
 For MVP, this is a thin wrapper that delegates to Layer 1's MarketDataProvider.
 """
 
+import logging
 from typing import Optional
 from datetime import datetime
 
 from tradepilot.layer1.base import MarketDataProvider
+
+# FIX 1.1: Add logging and staleness detection
+logger = logging.getLogger(__name__)
 
 
 class MarketDataStream:
@@ -28,8 +32,16 @@ class MarketDataStream:
             if self.nifty_open is None:
                 self.nifty_open = self.last_nifty
             self.last_update = datetime.now()
-        except Exception:
-            pass  # Non-fatal — scoring continues with stale data
+        except Exception as e:
+            # FIX 1.1: Log the exception instead of silently swallowing
+            logger.warning("Market data refresh failed (data may be stale): %s", str(e)[:100])
+
+    @property
+    def is_stale(self) -> bool:
+        """FIX 1.1: True if data is older than 180 seconds or never fetched."""
+        if self.last_update is None:
+            return True
+        return (datetime.now() - self.last_update).total_seconds() > 180
 
     @property
     def nifty_change_pct(self) -> float:

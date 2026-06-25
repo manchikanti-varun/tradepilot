@@ -422,6 +422,33 @@ async def _fetch_feed(session: aiohttp.ClientSession, feed: dict) -> list[NewsIt
     return items
 
 
+def _apply_time_decay(items: list[NewsItem]):
+    """FIX 5.2: Reduce sentiment weight of older headlines (>4h old blends toward neutral 50)."""
+    import email.utils as _email_utils
+    now = datetime.now()
+    for item in items:
+        if item.published:
+            try:
+                pub_time = _email_utils.parsedate_to_datetime(item.published)
+                # Make naive for comparison if needed
+                if pub_time.tzinfo:
+                    hours_old = (now.astimezone(pub_time.tzinfo) - pub_time).total_seconds() / 3600
+                else:
+                    hours_old = (now - pub_time).total_seconds() / 3600
+                if hours_old > 4:
+                    decay = min(0.5, hours_old / 12)
+                    item.sentiment_score = int(item.sentiment_score * (1 - decay) + 50 * decay)
+                    # Re-classify after decay
+                    if item.sentiment_score >= 60:
+                        item.sentiment = "BULLISH"
+                    elif item.sentiment_score <= 40:
+                        item.sentiment = "BEARISH"
+                    else:
+                        item.sentiment = "NEUTRAL"
+            except Exception:
+                pass
+
+
 async def fetch_market_news() -> MarketNewsState:
     """Fetch news from all sources. Uses AI for sentiment when available, falls back to keywords."""
     global _news_cache
@@ -471,6 +498,13 @@ async def fetch_market_news() -> MarketNewsState:
                     try:
                         score = int(scores_list[i])
                         score = max(10, min(90, score))
+                        # FIX 5.3: Validate AI score against keyword baseline
+                        _, keyword_score = _compute_sentiment(item.title)
+                        if abs(score - keyword_score) > 30:
+                            # AI and keyword disagree dramatically — use average
+                            score = int((score + keyword_score) / 2)
+                            logger.warning("AI-keyword disagreement: '%s' (AI=%d, KW=%d, using avg=%d)",
+                                           item.title[:50], int(scores_list[i]), keyword_score, score)
                         item.sentiment_score = score
                         if score >= 60:
                             item.sentiment = "BULLISH"
@@ -502,6 +536,9 @@ async def fetch_market_news() -> MarketNewsState:
     impact_order = {"HIGH": 0, "MEDIUM": 1, "LOW": 2}
     unique_items.sort(key=lambda x: (impact_order.get(x.impact, 2), 0 if x.category == "market" else 1))
 
+    # FIX 5.2: Apply time decay to old headlines before computing overall mood
+    _apply_time_decay(unique_items)
+
     # Compute overall mood (AI-enhanced or fallback to average)
     if ai_mood and ai_mood_score:
         mood = ai_mood
@@ -531,7 +568,15 @@ async def fetch_market_news() -> MarketNewsState:
 
 def get_news_sentiment_score() -> float:
     """Get current news sentiment as a score 0-100 for Engine 4.
+    FIX 5.1: Weight HIGH-impact headlines more heavily.
     Returns 55 (neutral) if no news data available."""
     if _news_cache and _news_cache.items:
-        return float(_news_cache.mood_score)
+        # FIX 5.1: Impact-weighted scoring instead of flat average
+        weighted_sum = 0
+        weight_total = 0
+        for item in _news_cache.items:
+            w = 3 if item.impact == "HIGH" else 2 if item.impact == "MEDIUM" else 1
+            weighted_sum += item.sentiment_score * w
+            weight_total += w
+        return weighted_sum / weight_total if weight_total > 0 else 55.0
     return 55.0

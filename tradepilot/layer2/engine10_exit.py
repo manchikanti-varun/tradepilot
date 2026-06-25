@@ -8,6 +8,7 @@ NORMAL is 0.35×ATR. EXTENDED phase always uses 0.6×ATR.
 from dataclasses import dataclass
 from datetime import datetime
 from typing import Optional
+from zoneinfo import ZoneInfo
 
 from tradepilot.config import (
     TradePhase, FORCE_EXIT_HOUR, FORCE_EXIT_MINUTE,
@@ -15,6 +16,9 @@ from tradepilot.config import (
     TRAIL_ATR_MULT, TRAIL_ATR_MULT_EXTENDED,
     MarketMode,
 )
+
+# FIX 6.6: All time checks use IST — Railway runs on UTC
+IST = ZoneInfo("Asia/Kolkata")
 
 
 @dataclass
@@ -55,7 +59,8 @@ def evaluate_exit(
       TRENDING → peak - ATR × 0.25 (tighter, rides the trend)
       EXTENDED → peak - ATR × 0.6 (always, regardless of mode)
     """
-    now = datetime.now()
+    # FIX 6.6: Use IST for force-exit time checks
+    now = datetime.now(IST)
     profit = current_ltp - entry_price
     profit_atr = profit / atr if atr > 0 else 0
 
@@ -89,7 +94,7 @@ def evaluate_exit(
     if current_ltp <= new_stop:
         hard_reason = f"Stop hit at ₹{new_stop:.2f}"
 
-    # Time-based force exit at 14:50
+    # Time-based force exit at 14:50 (IST)
     if now.hour == FORCE_EXIT_HOUR and now.minute >= FORCE_EXIT_MINUTE:
         hard_reason = "Market closing — force exit by 14:50"
     elif now.hour > FORCE_EXIT_HOUR:

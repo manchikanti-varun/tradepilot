@@ -11,7 +11,7 @@ from tradepilot.config import (
     RiskGate, CapitalTier, TIER_CONFIGS,
     MAX_TRADES_PER_DAY, MAX_CONSECUTIVE_LOSSES,
     VIX_HIGH_THRESHOLD, VIX_CAUTION_THRESHOLD,
-    NIFTY_DOWN_THRESHOLD_PCT,
+    NIFTY_DOWN_THRESHOLD_PCT, HARD_DAILY_LOSS_CAP_PCT,
 )
 from tradepilot.database import get_db
 
@@ -43,6 +43,8 @@ async def evaluate_risk(
 
     loss_mult = 2.0 if progress_pct_to_next_tier >= 85 else 2.5
     daily_loss_limit = current_capital * max_risk_pct / 100 * loss_mult
+    # FIX 4.2: Hard cap at 3% of capital regardless of tier formula
+    daily_loss_limit = min(daily_loss_limit, current_capital * HARD_DAILY_LOSS_CAP_PCT / 100)
 
     today = date.today().isoformat()
 

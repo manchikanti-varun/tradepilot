@@ -47,9 +47,61 @@ async def init_db():
 
 
 SCHEMA = """
+-- ═══════════════════════════════════════════════════════════════
+-- MULTI-USER AUTH TABLES
+-- ═══════════════════════════════════════════════════════════════
+
+-- Users table
+CREATE TABLE IF NOT EXISTS users (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    email TEXT NOT NULL UNIQUE,
+    password_hash TEXT NOT NULL,
+    name TEXT NOT NULL,
+    created_at TEXT NOT NULL,
+    last_login TEXT,
+    is_active INTEGER DEFAULT 1
+);
+
+-- Encrypted broker credentials per user
+CREATE TABLE IF NOT EXISTS user_credentials (
+    user_id INTEGER PRIMARY KEY REFERENCES users(id),
+    angel_api_key TEXT,
+    angel_client_id TEXT,
+    angel_password TEXT,
+    angel_totp_secret TEXT,
+    groq_api_key TEXT,
+    updated_at TEXT NOT NULL
+);
+
+-- Per-user growth state (replaces global growth_state for multi-user)
+CREATE TABLE IF NOT EXISTS user_growth_state (
+    user_id INTEGER PRIMARY KEY REFERENCES users(id),
+    current_capital REAL NOT NULL DEFAULT 20000.0,
+    current_tier TEXT NOT NULL DEFAULT 'D',
+    peak_capital REAL NOT NULL DEFAULT 20000.0,
+    capital_last_confirmed TEXT,
+    is_proven INTEGER DEFAULT 0
+);
+
+-- Per-user settings (replaces global user_settings for multi-user)
+CREATE TABLE IF NOT EXISTS user_settings_v2 (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    user_id INTEGER NOT NULL REFERENCES users(id),
+    key TEXT NOT NULL,
+    value TEXT NOT NULL,
+    updated_at TEXT NOT NULL,
+    UNIQUE(user_id, key)
+);
+
+-- ═══════════════════════════════════════════════════════════════
+-- ORIGINAL TABLES (kept for backward compat + single-user mode)
+-- user_id column added where needed for multi-user queries
+-- ═══════════════════════════════════════════════════════════════
+
 -- Active and historical trades
 CREATE TABLE IF NOT EXISTS trades (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
+    user_id INTEGER DEFAULT 1,
     date TEXT NOT NULL,
     ticker TEXT NOT NULL,
     sector TEXT,
@@ -93,21 +145,24 @@ CREATE TABLE IF NOT EXISTS trades (
     sector_was_top_at_entry INTEGER DEFAULT 0
 );
 
--- Enforce single open position at DB level
-CREATE UNIQUE INDEX IF NOT EXISTS idx_single_open_trade
-    ON trades (status) WHERE status = 'OPEN';
+-- Enforce single open position per user at DB level
+CREATE UNIQUE INDEX IF NOT EXISTS idx_single_open_trade_per_user
+    ON trades (user_id, status) WHERE status = 'OPEN';
 
--- Daily state for risk manager
+-- Daily state for risk manager (per user)
 CREATE TABLE IF NOT EXISTS daily_state (
-    date TEXT PRIMARY KEY,
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    user_id INTEGER DEFAULT 1,
+    date TEXT NOT NULL,
     trade_count INTEGER DEFAULT 0,
     daily_pnl REAL DEFAULT 0.0,
     consecutive_losses INTEGER DEFAULT 0,
     hard_stop_active INTEGER DEFAULT 0,
-    hard_stop_reason TEXT
+    hard_stop_reason TEXT,
+    UNIQUE(user_id, date)
 );
 
--- Capital growth tracking
+-- Capital growth tracking (legacy — kept for backward compat, new users use user_growth_state)
 CREATE TABLE IF NOT EXISTS growth_state (
     id INTEGER PRIMARY KEY CHECK (id = 1),
     current_capital REAL NOT NULL DEFAULT 20000.0,
@@ -120,13 +175,14 @@ CREATE TABLE IF NOT EXISTS growth_state (
     is_proven_tier_d INTEGER DEFAULT 0
 );
 
--- Initialize growth state if not exists
+-- Initialize growth state if not exists (legacy single-user)
 INSERT OR IGNORE INTO growth_state (id, current_capital, current_tier, peak_capital)
 VALUES (1, 20000.0, 'D', 20000.0);
 
 -- Daily rejection log (Engine 22)
 CREATE TABLE IF NOT EXISTS rejection_log (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
+    user_id INTEGER DEFAULT 1,
     date TEXT NOT NULL,
     ticker TEXT NOT NULL,
     reason TEXT NOT NULL,
@@ -192,6 +248,7 @@ CREATE TABLE IF NOT EXISTS opportunity_archive (
 -- Intake log (Engine 25 — every message received, for audit/debug)
 CREATE TABLE IF NOT EXISTS intake_log (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
+    user_id INTEGER DEFAULT 1,
     timestamp TEXT NOT NULL,
     raw_input TEXT NOT NULL,
     parsed_intent TEXT,
@@ -214,6 +271,7 @@ CREATE TABLE IF NOT EXISTS nifty_daily (
 -- Signal history (every signal that fired)
 CREATE TABLE IF NOT EXISTS signal_history (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
+    user_id INTEGER DEFAULT 1,
     date TEXT NOT NULL,
     timestamp TEXT NOT NULL,
     symbol TEXT NOT NULL,
@@ -248,6 +306,7 @@ CREATE TABLE IF NOT EXISTS user_settings (
 -- Trade notes / journal
 CREATE TABLE IF NOT EXISTS trade_notes (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
+    user_id INTEGER DEFAULT 1,
     trade_id INTEGER NOT NULL,
     note TEXT NOT NULL,
     tags TEXT,
@@ -257,6 +316,7 @@ CREATE TABLE IF NOT EXISTS trade_notes (
 -- Price alerts (user-set)
 CREATE TABLE IF NOT EXISTS price_alerts (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
+    user_id INTEGER DEFAULT 1,
     symbol TEXT NOT NULL,
     target_price REAL NOT NULL,
     direction TEXT NOT NULL,
@@ -267,8 +327,11 @@ CREATE TABLE IF NOT EXISTS price_alerts (
 
 -- Watchlist favorites (pinned stocks)
 CREATE TABLE IF NOT EXISTS favorites (
-    symbol TEXT PRIMARY KEY,
-    added_at TEXT NOT NULL
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    user_id INTEGER DEFAULT 1,
+    symbol TEXT NOT NULL,
+    added_at TEXT NOT NULL,
+    UNIQUE(user_id, symbol)
 );
 
 -- Trade insights (learned patterns)
@@ -278,5 +341,17 @@ CREATE TABLE IF NOT EXISTS trade_insights (
     insight TEXT NOT NULL,
     data_json TEXT,
     created_at TEXT NOT NULL
+);
+
+-- FIX 2.4: AI analysis log for model drift detection
+CREATE TABLE IF NOT EXISTS ai_analysis_log (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    timestamp TEXT NOT NULL,
+    symbol TEXT NOT NULL,
+    model_1_action TEXT,
+    model_1_confidence TEXT,
+    model_2_action TEXT,
+    model_2_confidence TEXT,
+    verdict TEXT
 );
 """

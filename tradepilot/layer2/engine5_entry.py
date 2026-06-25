@@ -2,6 +2,7 @@
 
 from datetime import datetime
 from dataclasses import dataclass
+from zoneinfo import ZoneInfo
 
 from tradepilot.config import (
     ENTRY_START_HOUR, ENTRY_START_MINUTE,
@@ -10,6 +11,9 @@ from tradepilot.config import (
 )
 from tradepilot.layer1.base import MarketDataProvider, DepthSnapshot
 from tradepilot.layer2.engine4_discovery import StockScore
+
+# FIX 6.5: Use IST for all time checks — Railway deploys on UTC
+IST = ZoneInfo("Asia/Kolkata")
 
 
 @dataclass
@@ -42,10 +46,10 @@ async def check_entry_conditions(
     symbol = score.symbol
     ltp = score.ltp
 
-    # Time check
-    now = datetime.now()
-    entry_start = now.replace(hour=ENTRY_START_HOUR, minute=ENTRY_START_MINUTE, second=0)
-    entry_end = now.replace(hour=ENTRY_END_HOUR, minute=ENTRY_END_MINUTE, second=0)
+    # FIX 6.5: Time check uses IST, not server-local datetime.now()
+    now = datetime.now(IST)
+    entry_start = now.replace(hour=ENTRY_START_HOUR, minute=ENTRY_START_MINUTE, second=0, microsecond=0)
+    entry_end = now.replace(hour=ENTRY_END_HOUR, minute=ENTRY_END_MINUTE, second=0, microsecond=0)
     if not (entry_start <= now <= entry_end):
         return EntryCheckResult(False, "Outside entry window (9:20-14:40)", symbol, ltp, score)
 

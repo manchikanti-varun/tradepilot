@@ -18,9 +18,11 @@ class ChargeBreakdown:
     total: float
 
 
-def calculate_angel_charges(qty: int, buy_price: float, sell_price: float) -> tuple[float, ChargeBreakdown]:
+def calculate_angel_charges(qty: int, buy_price: float, sell_price: float, slippage_pct: float = 0.02) -> tuple[float, ChargeBreakdown]:
     """
     Calculate estimated trading charges for an intraday equity trade.
+
+    FIX 3.4: Added slippage_pct parameter (default 0.02% per side) for realistic net P&L.
 
     Models Angel One's charge structure:
     - Brokerage: 0.1% or ₹20 max per side, ₹5 min per side
@@ -32,8 +34,12 @@ def calculate_angel_charges(qty: int, buy_price: float, sell_price: float) -> tu
 
     Returns (total_charges, breakdown).
     """
-    buy_val = qty * buy_price
-    sell_val = qty * sell_price
+    # FIX 3.4: Apply slippage — buy higher, sell lower
+    effective_buy = buy_price * (1 + slippage_pct / 100)
+    effective_sell = sell_price * (1 - slippage_pct / 100)
+
+    buy_val = qty * effective_buy
+    sell_val = qty * effective_sell
     turnover = buy_val + sell_val
 
     # Brokerage: 0.1% capped at ₹20, floor ₹5 per side

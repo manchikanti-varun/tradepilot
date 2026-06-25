@@ -8,12 +8,13 @@ from typing import Optional
 from pathlib import Path
 from contextlib import asynccontextmanager
 
-from fastapi import FastAPI, HTTPException, Request
+from fastapi import FastAPI, HTTPException, Request, Depends
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse, JSONResponse
 from pydantic import BaseModel, Field, field_validator
 
 from tradepilot.logging_config import setup_logging
+from tradepilot.database import get_db
 from tradepilot.orchestrator import (
     get_state, initialize, run_live_pipeline, run_position_monitor,
     process_intake, confirm_intake, generate_morning_brief,
@@ -69,6 +70,149 @@ async def serve_frontend():
     return FileResponse(FRONTEND_DIR / "index.html")
 
 
+# ═══════════════════════════════════════════════════════════════
+# AUTH ENDPOINTS — Public (no token required)
+# ═══════════════════════════════════════════════════════════════
+
+from tradepilot.auth import (
+    get_current_user, signup_user, login_user, refresh_access_token,
+    save_broker_credentials, save_groq_key, has_broker_credentials,
+    get_user_credentials,
+    SignupRequest, LoginRequest, RefreshRequest,
+    BrokerCredentialsRequest, GroqKeyRequest,
+)
+
+
+@app.post("/api/auth/signup")
+async def api_signup(request: SignupRequest):
+    """Create a new user account. Returns JWT tokens."""
+    return await signup_user(request)
+
+
+@app.post("/api/auth/login")
+async def api_login(request: LoginRequest):
+    """Login with email + password. Returns JWT tokens."""
+    return await login_user(request)
+
+
+@app.post("/api/auth/refresh")
+async def api_refresh(request: RefreshRequest):
+    """Get new access token using refresh token."""
+    return await refresh_access_token(request.refresh_token)
+
+
+@app.get("/api/auth/me")
+async def api_get_me(user: dict = Depends(get_current_user)):
+    """Get current user profile and configuration status."""
+    from tradepilot.auth import has_groq_key, get_user_data_provider
+    async with get_db() as db:
+        row = await db.execute(
+            "SELECT id, email, name, created_at, last_login FROM users WHERE id = ?",
+            (user["user_id"],),
+        )
+        data = await row.fetchone()
+    has_broker = await has_broker_credentials(user["user_id"])
+    has_ai = await has_groq_key(user["user_id"])
+    data_mode = await get_user_data_provider(user["user_id"])
+
+    return {
+        "user": {
+            "id": data["id"],
+            "email": data["email"],
+            "name": data["name"],
+            "created_at": data["created_at"],
+            "last_login": data["last_login"],
+        },
+        "config": {
+            "has_broker_credentials": has_broker,
+            "has_groq_key": has_ai,
+            "data_mode": data_mode,  # "hybrid" or "yahoo"
+            "ai_enabled": has_ai,
+            "data_mode_label": "Real-time (Hybrid)" if has_broker else "Yahoo Finance (delayed)",
+        },
+    }
+
+
+@app.post("/api/auth/broker-credentials")
+async def api_save_broker_creds(
+    request: BrokerCredentialsRequest,
+    user: dict = Depends(get_current_user),
+):
+    """Save encrypted Angel One credentials. OPTIONAL — without these, system uses Yahoo Finance.
+    With these, system upgrades to Hybrid mode (real-time LTP, live market depth)."""
+    return await save_broker_credentials(user["user_id"], request)
+
+
+@app.post("/api/auth/groq-key")
+async def api_save_groq_key(
+    request: GroqKeyRequest,
+    user: dict = Depends(get_current_user),
+):
+    """Save encrypted Groq API key. REQUIRED for AI features (dual-model analysis, coaching, signals).
+    Without this, the system runs in rule-based-only mode (technical indicators without AI confirmation)."""
+    return await save_groq_key(user["user_id"], request)
+
+
+@app.get("/api/auth/credentials-status")
+async def api_credentials_status(user: dict = Depends(get_current_user)):
+    """Check which credentials are configured.
+    
+    - Groq API key: REQUIRED for AI features (dual-model analysis, coaching, briefs)
+    - Angel One: OPTIONAL — without it, system uses Yahoo Finance (1-2 min delayed data)
+      With it, system uses Hybrid mode (real-time data from Angel One + Yahoo for bulk)
+    """
+    async with get_db() as db:
+        row = await db.execute(
+            "SELECT angel_api_key, angel_client_id, angel_password, angel_totp_secret, groq_api_key "
+            "FROM user_credentials WHERE user_id = ?",
+            (user["user_id"],),
+        )
+        data = await row.fetchone()
+
+    if data is None:
+        return {
+            "groq": False,
+            "angel_one": False,
+            "data_mode": "yahoo_only",
+            "ai_enabled": False,
+            "ready_to_trade": False,
+            "message": "Add your Groq API key to enable AI features. Angel One credentials are optional.",
+        }
+
+    angel_configured = all([
+        data["angel_api_key"], data["angel_client_id"],
+        data["angel_password"], data["angel_totp_secret"],
+    ])
+    groq_configured = bool(data["groq_api_key"])
+
+    if angel_configured:
+        data_mode = "hybrid"
+        data_mode_label = "Real-time (Angel One + Yahoo)"
+    else:
+        data_mode = "yahoo_only"
+        data_mode_label = "Yahoo Finance (1-2 min delay)"
+
+    return {
+        "groq": groq_configured,
+        "angel_one": angel_configured,
+        "data_mode": data_mode,
+        "data_mode_label": data_mode_label,
+        "ai_enabled": groq_configured,
+        "ready_to_trade": groq_configured,  # Groq is the minimum to get AI signals
+        "message": (
+            "Fully configured — real-time data + AI analysis active." if (angel_configured and groq_configured)
+            else "AI active. Add Angel One credentials for real-time data (optional)." if groq_configured
+            else "Add Groq API key to enable AI analysis and signals." if not groq_configured
+            else ""
+        ),
+    }
+
+
+# ═══════════════════════════════════════════════════════════════
+# PROTECTED ENDPOINTS — All require valid JWT (user-scoped data)
+# ═══════════════════════════════════════════════════════════════
+
+
 # --- Models with validation ---
 
 class IntakeRequest(BaseModel):
@@ -108,43 +252,62 @@ async def global_exception_handler(request: Request, exc: Exception):
 
 @app.get("/api/health")
 async def health():
-    """Health check — used by Railway deploy verification AND external keep-alive pings."""
+    """Health check — PUBLIC (no auth required). Used by Railway deploy verification."""
     state = get_state()
     provider_name = type(state.market_data).__name__
     return {
         "status": "healthy",
-        "version": "1.0.0",
+        "version": "2.0.0-multiuser",
         "data_source": provider_name,
         "last_scan_time": state.last_scan_time.isoformat() if state.last_scan_time else None,
-        "active_trade": state.active_trade.ticker if state.active_trade else None,
         "market_mode": state.market_mode.value,
         "last_error": state.last_error,
     }
 
 
 @app.get("/api/state")
-async def get_system_state():
+async def get_system_state(user: dict = Depends(get_current_user)):
     state = get_state()
-    growth = state.growth_state or await get_growth_state()
+    # Load user-specific growth state
+    user_id = user["user_id"]
+    async with get_db() as db:
+        row = await db.execute(
+            "SELECT * FROM user_growth_state WHERE user_id = ?", (user_id,)
+        )
+        growth_data = await row.fetchone()
+
+    if growth_data:
+        from tradepilot.layer2.engine21_growth import lookup_tier, get_next_tier_threshold
+        from tradepilot.config import TIER_CONFIGS
+        capital = growth_data["current_capital"]
+        tier = lookup_tier(capital)
+        peak = growth_data["peak_capital"]
+        next_threshold = get_next_tier_threshold(tier)
+        tier_config = TIER_CONFIGS[tier]
+        tier_start = tier_config.range_min
+        progress = ((capital - tier_start) / (next_threshold - tier_start) * 100) if next_threshold > tier_start else 100
+        progress = max(0, min(100, progress))
+        drawdown = ((peak - capital) / peak * 100) if peak > 0 else 0
+    else:
+        capital, tier, progress, drawdown, peak = 20000, "D", 0, 0, 20000
+
     return {
         "market_mode": state.market_mode.value,
         "risk_gate": state.risk_state.gate.value if state.risk_state else "GO",
         "risk_reason": state.risk_state.reason if state.risk_state else None,
         "event_risk": state.event_risk.level if state.event_risk else "NONE",
-        "capital_tier": growth.current_tier.value,
         "growth_state": {
-            "current_capital": growth.current_capital,
-            "current_tier": growth.current_tier.value,
-            "progress_pct_to_next_tier": growth.progress_pct_to_next_tier,
-            "peak_capital": growth.peak_capital,
-            "drawdown_from_peak_pct": growth.drawdown_from_peak_pct,
-            "is_proven": growth.is_proven,
+            "current_capital": capital,
+            "current_tier": tier.value if hasattr(tier, 'value') else str(tier),
+            "progress_pct_to_next_tier": round(progress, 1),
+            "peak_capital": peak,
+            "drawdown_from_peak_pct": round(drawdown, 1),
         },
     }
 
 
 @app.get("/api/brief/today")
-async def get_morning_brief():
+async def get_morning_brief(user: dict = Depends(get_current_user)):
     """Engine 26 morning brief — enhanced with VIX, news mood, yesterday recap."""
     state = get_state()
     if state.morning_brief and state.morning_brief.date == datetime.now().strftime("%Y-%m-%d"):
@@ -210,12 +373,28 @@ async def get_signals():
     state = get_state()
     signals = []
     now = datetime.now()
+
+    # FIX 6.2: Hard server-side block after entry window closes (IST)
+    from zoneinfo import ZoneInfo
+    now_ist_time = datetime.now(ZoneInfo("Asia/Kolkata"))
+    if now_ist_time.hour > 14 or (now_ist_time.hour == 14 and now_ist_time.minute > 40):
+        return {"signals": [], "count": 0,
+                "risk_gate": state.risk_state.gate.value if state.risk_state else "GO",
+                "note": "Entry window closed for today"}
+
     for s in state.signals:
         generated = s.generated_at if hasattr(s, 'generated_at') and s.generated_at else now
         age_sec = (now - generated).total_seconds()
         # Signals expire after 15 minutes (900 seconds)
         is_expired = age_sec > 900
         remaining_sec = max(0, 900 - int(age_sec))
+
+        # FIX 3.1: Fetch live price and compute drift
+        try:
+            live_ltp = await state.market_data.get_ltp(s.symbol)
+        except Exception:
+            live_ltp = s.ltp
+        price_drift_pct = abs(live_ltp - s.ltp) / s.ltp * 100 if s.ltp > 0 else 0
 
         signals.append({
             "priority": s.priority,
@@ -224,6 +403,9 @@ async def get_signals():
             "grade": s.grade,
             "composite": s.composite,
             "ltp": s.ltp,
+            "live_price": round(live_ltp, 2),
+            "price_drift_pct": round(price_drift_pct, 2),
+            "is_stale_price": price_drift_pct > 0.3,
             "qty": s.qty,
             "stop_price": s.stop_price,
             "target": s.target,
@@ -246,7 +428,7 @@ async def get_signals():
 
 
 @app.get("/api/position")
-async def get_position():
+async def get_position(user: dict = Depends(get_current_user)):
     state = get_state()
     trade = state.active_trade
     if trade is None:
@@ -289,12 +471,12 @@ async def get_position():
 
 
 @app.post("/api/intake")
-async def trade_intake(request: IntakeRequest):
+async def trade_intake(request: IntakeRequest, user: dict = Depends(get_current_user)):
     return await process_intake(request.text)
 
 
 @app.post("/api/intake/confirm")
-async def confirm_trade_intake(request: ConfirmRequest):
+async def confirm_trade_intake(request: ConfirmRequest, user: dict = Depends(get_current_user)):
     return await confirm_intake({
         "intent": request.intent, "ticker": request.ticker,
         "price": request.price, "qty": request.qty,
@@ -302,7 +484,7 @@ async def confirm_trade_intake(request: ConfirmRequest):
 
 
 @app.get("/api/rejections/today")
-async def get_rejections_today():
+async def get_rejections_today(user: dict = Depends(get_current_user)):
     state = get_state()
     summary = await get_daily_rejection_summary(
         total_scanned=len(state.watchlist_scores),
@@ -318,12 +500,12 @@ async def get_rejections_today():
 
 
 @app.get("/api/performance")
-async def get_performance():
+async def get_performance(user: dict = Depends(get_current_user)):
     return await check_mvp_exit_criteria()
 
 
 @app.get("/api/stats")
-async def get_stats():
+async def get_stats(user: dict = Depends(get_current_user)):
     """Full stats with chart data — daily P&L, capital curve, trade breakdown."""
     from tradepilot.database import get_db
     async with get_db() as db:
@@ -427,7 +609,7 @@ async def get_stats():
 
 
 @app.get("/api/history")
-async def get_trade_history(limit: int = 60):
+async def get_trade_history(limit: int = 60, user: dict = Depends(get_current_user)):
     tracker = TradeTracker()
     trades = await tracker.get_trade_history(limit=limit)
     return {
@@ -563,7 +745,7 @@ async def reality_check(period_start: Optional[str] = None, period_end: Optional
 
 
 @app.get("/api/watchlist")
-async def get_watchlist():
+async def get_watchlist(user: dict = Depends(get_current_user)):
     state = get_state()
     growth = state.growth_state or await get_growth_state()
     return {
@@ -581,7 +763,7 @@ async def get_watchlist():
 
 
 @app.get("/api/growth")
-async def get_growth():
+async def get_growth(user: dict = Depends(get_current_user)):
     growth = await get_growth_state()
     return {
         "current_capital": growth.current_capital,
@@ -597,7 +779,7 @@ async def get_growth():
 
 
 @app.get("/api/news")
-async def get_news():
+async def get_news(user: dict = Depends(get_current_user)):
     """Market news feed — with time ago, source links, and AI analysis of impact."""
     news_state = await fetch_market_news()
     from tradepilot.layer2.engine_ai import analyze_with_gemini, analyze_with_groq
@@ -704,7 +886,7 @@ Respond in this JSON format:
 
 
 @app.get("/api/alerts")
-async def get_alerts():
+async def get_alerts(user: dict = Depends(get_current_user)):
     """Get current actionable alerts — signals, exit recommendations, risk warnings."""
     state = get_state()
     alerts = []
@@ -868,7 +1050,7 @@ async def get_chart_data(symbol: str, interval: str = "5m"):
 
 
 @app.get("/api/stock/{symbol}/plan")
-async def get_stock_trading_plan(symbol: str):
+async def get_stock_trading_plan(symbol: str, user: dict = Depends(get_current_user)):
     """100% AI-driven stock analysis. Feeds all data to AI, returns its verdict."""
     from tradepilot.layer2.engine4_discovery import (
         compute_rsi, compute_vwap, compute_macd, compute_ema, compute_atr
@@ -995,6 +1177,16 @@ async def get_stock_trading_plan(symbol: str):
             "reasoning": ai_result.get("reasoning", []),
             "gemini_says": ai_result.get("gemini", {}).get("reasoning") if ai_result.get("gemini") else None,
             "groq_says": ai_result.get("groq", {}).get("reasoning") if ai_result.get("groq") else None,
+            # FIX 6.4: Surface degraded state to frontend
+            "models_responded": ai_result.get("models_responded", 2),
+            "is_degraded": ai_result.get("is_degraded", False),
+        },
+        # FIX 2.2: Rule engine cross-check — AI verdict does NOT override risk gate
+        "rule_engine_check": {
+            "risk_gate": state.risk_state.gate.value if state.risk_state else "GO",
+            "would_pass_risk": state.risk_state.gate != RiskGate.HARD_STOP if state.risk_state else True,
+            "warning": ("⚠️ Risk gate is active — AI verdict does not override risk controls"
+                        if state.risk_state and state.risk_state.gate == RiskGate.HARD_STOP else None),
         },
         "entry_price": entry,
         "stop_loss": stop,
@@ -1061,7 +1253,7 @@ async def get_time_performance():
 
 
 @app.get("/api/position/live-pnl")
-async def get_live_pnl():
+async def get_live_pnl(user: dict = Depends(get_current_user)):
     """Feature 1: Live P&L — real-time profit/loss for active position."""
     state = get_state()
     trade = state.active_trade
@@ -1153,7 +1345,7 @@ async def quick_trade_intake(symbol: str, price: float, qty: int, intent: str = 
 
 
 @app.get("/api/position/exit-calc")
-async def exit_calculator():
+async def exit_calculator(user: dict = Depends(get_current_user)):
     """Feature 5: Exit calculator — what you get if you exit now."""
     state = get_state()
     trade = state.active_trade
@@ -1238,7 +1430,7 @@ async def get_multiframe_analysis(symbol: str):
 
 
 @app.get("/api/favorites")
-async def get_favorites():
+async def get_favorites(user: dict = Depends(get_current_user)):
     """Feature 8: Get favorite/pinned stocks."""
     from tradepilot.database import get_db
     async with get_db() as db:
@@ -1250,7 +1442,7 @@ async def get_favorites():
 
 
 @app.post("/api/favorites/{symbol}")
-async def add_favorite(symbol: str):
+async def add_favorite(symbol: str, user: dict = Depends(get_current_user)):
     """Add stock to favorites."""
     from tradepilot.database import get_db
     async with get_db() as db:
@@ -1261,7 +1453,7 @@ async def add_favorite(symbol: str):
 
 
 @app.delete("/api/favorites/{symbol}")
-async def remove_favorite(symbol: str):
+async def remove_favorite(symbol: str, user: dict = Depends(get_current_user)):
     """Remove stock from favorites."""
     from tradepilot.database import get_db
     async with get_db() as db:
@@ -1271,7 +1463,7 @@ async def remove_favorite(symbol: str):
 
 
 @app.get("/api/insights")
-async def get_trade_insights():
+async def get_trade_insights(user: dict = Depends(get_current_user)):
     """Features 9-12: AI-learned insights from trade history."""
     from tradepilot.database import get_db
     async with get_db() as db:
@@ -1694,7 +1886,7 @@ async def get_opportunity_archive():
 
 
 @app.post("/api/settings")
-async def update_settings(request: SettingsUpdate):
+async def update_settings(request: SettingsUpdate, user: dict = Depends(get_current_user)):
     """Update a setting (with audit log)."""
     from tradepilot.database import get_db
     async with get_db() as db:
@@ -1708,7 +1900,7 @@ async def update_settings(request: SettingsUpdate):
 
 
 @app.get("/api/settings/all")
-async def get_all_user_settings():
+async def get_all_user_settings(user: dict = Depends(get_current_user)):
     """Get all user settings."""
     from tradepilot.settings import get_all_settings
     settings = await get_all_settings()
@@ -1716,7 +1908,7 @@ async def get_all_user_settings():
 
 
 @app.post("/api/settings/save")
-async def save_user_settings(request: Request):
+async def save_user_settings(request: Request, user: dict = Depends(get_current_user)):
     """Save multiple settings at once."""
     from tradepilot.settings import set_multiple_settings
     body = await request.json()
@@ -1732,7 +1924,7 @@ class CapitalUpdate(BaseModel):
 
 
 @app.post("/api/capital")
-async def set_capital(request: CapitalUpdate):
+async def set_capital(request: CapitalUpdate, user: dict = Depends(get_current_user)):
     """Set current trading capital. Tier adjusts automatically."""
     from tradepilot.layer2.engine21_growth import update_capital, get_growth_state
     from tradepilot.database import get_db

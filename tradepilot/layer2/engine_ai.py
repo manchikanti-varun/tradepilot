@@ -40,6 +40,10 @@ async def ai_quick_json(prompt: str, max_tokens: int = 500, temperature: float =
     if not GROQ_API_KEY:
         return None
 
+    # FIX 8.1: Log prompt version for drift detection
+    from tradepilot.layer2.prompts import PROMPT_VERSION
+    logger.debug("ai_quick_json call (prompt_version=%s)", PROMPT_VERSION)
+
     url = "https://api.groq.com/openai/v1/chat/completions"
     payload = {
         "model": "llama-3.3-70b-versatile",
@@ -129,10 +133,18 @@ Respond ONLY in JSON:
     return await ai_quick_json(prompt, max_tokens=300)
 
 
+# FIX 8.4: Valid loss causes for validation
+VALID_LOSS_CAUSES = {
+    "LATE_ENTRY", "HELD_TOO_LONG", "WRONG_SECTOR", "NEWS_REVERSAL",
+    "CHARGE_DRAG", "WEAK_SETUP_OVERRIDE", "REGIME_MISMATCH",
+}
+
+
 async def ai_classify_loss(trade_data: dict) -> Optional[dict]:
     """AI-powered loss classification for a single trade.
     
     Returns: {"primary_cause": "...", "reasoning": "...", "fix": "..."}
+    FIX 8.4: Validates primary_cause and sanitizes text fields.
     """
     if not GROQ_API_KEY:
         return None
@@ -167,7 +179,19 @@ Respond ONLY in JSON:
   "fix": "one specific actionable suggestion to avoid this in future"
 }}"""
 
-    return await ai_quick_json(prompt, max_tokens=200)
+    result = await ai_quick_json(prompt, max_tokens=200)
+    if result:
+        # FIX 8.4: Validate primary_cause against allowed set
+        cause = result.get("primary_cause", "").upper().replace(" ", "_")
+        if cause not in VALID_LOSS_CAUSES:
+            result["primary_cause"] = "UNCLASSIFIED"
+            result["original_ai_cause"] = cause
+        else:
+            result["primary_cause"] = cause
+        # FIX 8.4: Sanitize text fields to max 200 chars
+        result["reasoning"] = (result.get("reasoning") or "")[:200]
+        result["fix"] = (result.get("fix") or "")[:200]
+    return result
 
 
 async def ai_morning_brief(data: dict) -> Optional[str]:
@@ -287,9 +311,16 @@ Respond ONLY in JSON:
 
 
 def _build_prompt(symbol: str, data: dict) -> str:
-    """Build comprehensive analysis prompt — AI sees everything including news."""
+    """Build comprehensive analysis prompt — AI sees everything including news.
+    FIX 8.2: Cap news_context at 600 chars and price_history at 400 chars to prevent truncation."""
     price_history = data.get('price_history', 'Not available')
     news_context = data.get('news_context', 'No recent news available for this stock.')
+
+    # FIX 8.2: Token budget management — prevent context window overflow
+    if len(news_context) > 600:
+        news_context = news_context[:597] + "..."
+    if len(price_history) > 400:
+        price_history = price_history[:397] + "..."
 
     return f"""You are a professional intraday trader analyzing NSE India stocks. Give a complete trading analysis.
 
@@ -342,8 +373,12 @@ Respond ONLY in this JSON format:
 }}"""
 
 
-async def analyze_with_gemini(symbol: str, data: dict) -> Optional[dict]:
-    """Get analysis from second AI — uses Groq with a different model for independent opinion."""
+# FIX 2.3: Both models run on Groq (Llama 3.3 70B + Llama 4 Scout).
+# They are NOT provider-independent. If Groq is down, dual-confirmation is unavailable.
+# Previously misnamed "analyze_with_gemini" — renamed for clarity.
+
+async def analyze_with_scout(symbol: str, data: dict) -> Optional[dict]:
+    """Get analysis from Llama 4 Scout via Groq (second model for agreement check)."""
     if not GROQ_API_KEY:
         return None
 
@@ -367,7 +402,7 @@ async def analyze_with_gemini(symbol: str, data: dict) -> Optional[dict]:
             async with session.post(url, json=payload, headers=headers, timeout=aiohttp.ClientTimeout(total=20)) as resp:
                 if resp.status != 200:
                     body = await resp.text()
-                    logger.warning("Groq (second model) returned %d: %s", resp.status, body[:200])
+                    logger.warning("Groq Scout returned %d: %s", resp.status, body[:200])
                     return None
                 result = await resp.json()
 
@@ -377,11 +412,15 @@ async def analyze_with_gemini(symbol: str, data: dict) -> Optional[dict]:
         return _parse_ai_response(text, "Groq-Scout")
 
     except asyncio.TimeoutError:
-        logger.warning("Groq (second model) timed out")
+        logger.warning("Groq Scout timed out")
         return None
     except Exception as e:
-        logger.warning("Groq (second model) failed: %s", str(e)[:100])
+        logger.warning("Groq Scout failed: %s", str(e)[:100])
         return None
+
+
+# Keep backward-compatible alias
+analyze_with_gemini = analyze_with_scout
 
 
 async def analyze_with_groq(symbol: str, data: dict) -> Optional[dict]:
@@ -471,8 +510,20 @@ async def dual_ai_analysis(symbol: str, data: dict) -> dict:
 
     # Both agree on BUY
     if gemini_action == "BUY" and groq_action == "BUY":
-        verdict = "CONFIRMED_BUY"
-        confidence = "HIGH"
+        # FIX 2.1: Check entry price divergence — directional agreement alone is not enough
+        g_entry = gemini_result.get("entry_price", 0) if gemini_result else 0
+        q_entry = groq_result.get("entry_price", 0) if groq_result else 0
+        if g_entry > 0 and q_entry > 0:
+            price_divergence_pct = abs(g_entry - q_entry) / min(g_entry, q_entry) * 100
+            if price_divergence_pct > 0.5:
+                verdict = "CONFLICTING"
+                confidence = "LOW"
+            else:
+                verdict = "CONFIRMED_BUY"
+                confidence = "HIGH"
+        else:
+            verdict = "CONFIRMED_BUY"
+            confidence = "HIGH"
     # Both agree on WAIT/SELL
     elif gemini_action in ("WAIT", "SELL") and groq_action in ("WAIT", "SELL"):
         verdict = "CONFIRMED_WAIT"
@@ -506,6 +557,27 @@ async def dual_ai_analysis(symbol: str, data: dict) -> dict:
     # Pick best entry/stop/target (from the BUY recommendation if any)
     best = gemini_result if gemini_action == "BUY" else groq_result if groq_action == "BUY" else gemini_result or groq_result
 
+    # FIX 2.4: Persist per-model outputs for drift detection
+    try:
+        from tradepilot.database import get_db
+        async with get_db() as db:
+            await db.execute(
+                """INSERT INTO ai_analysis_log
+                (timestamp, symbol, model_1_action, model_1_confidence, model_2_action, model_2_confidence, verdict)
+                VALUES (?, ?, ?, ?, ?, ?, ?)""",
+                (datetime.now().isoformat(), symbol,
+                 groq_action, groq_result.get("confidence") if groq_result else None,
+                 gemini_action, gemini_result.get("confidence") if gemini_result else None,
+                 verdict),
+            )
+            await db.commit()
+    except Exception:
+        pass  # Non-critical — don't block analysis
+
+    # FIX 6.4: Track how many models responded for degradation awareness
+    models_responded = sum(1 for x in [gemini_result, groq_result] if x is not None)
+    is_degraded = gemini_result is None or groq_result is None
+
     return {
         "gemini": gemini_result,
         "groq": groq_result,
@@ -518,4 +590,6 @@ async def dual_ai_analysis(symbol: str, data: dict) -> dict:
         "target_2": best.get("target_2") if best else None,
         "risk_reward": best.get("risk_reward") if best else None,
         "reasoning": reasons,
+        "models_responded": models_responded,
+        "is_degraded": is_degraded,
     }

@@ -170,18 +170,31 @@ async def re_evaluate_position(
             ai_reasoning=ai_reasoning,
         )
     elif 55 <= score < 70:
-        # Rule says WATCH — AI might push to EXIT or confirm HOLD
+        # FIX 8.5: Only override exit if AI has HIGH confidence
         if ai_action == "EXIT" and ai_reasoning:
-            return ReEvalResult(
-                action="EXIT",
-                re_entry_score=score,
-                re_entry_grade=grade,
-                reason=f"Score dropped to {score:.0f} + AI recommends exit",
-                tighten_stop=False,
-                override_exit=True,
-                override_reason="ai_exit_recommendation",
-                ai_reasoning=ai_reasoning,
-            )
+            ai_confidence = ai_result.get("confidence", "LOW") if ai_result else "LOW"
+            if ai_confidence == "HIGH":
+                return ReEvalResult(
+                    action="EXIT",
+                    re_entry_score=score,
+                    re_entry_grade=grade,
+                    reason=f"Score dropped to {score:.0f} + AI HIGH-confidence exit recommendation",
+                    tighten_stop=False,
+                    override_exit=True,
+                    override_reason="ai_exit_recommendation_high_confidence",
+                    ai_reasoning=ai_reasoning,
+                )
+            else:
+                # LOW/MEDIUM confidence EXIT → just tighten, don't force exit
+                return ReEvalResult(
+                    action="WATCH",
+                    re_entry_score=score,
+                    re_entry_grade=grade,
+                    reason=f"Score {score:.0f} + AI suggests exit ({ai_confidence} confidence) — tightening stop",
+                    tighten_stop=True,
+                    override_exit=False,
+                    ai_reasoning=f"[{ai_confidence} confidence] {ai_reasoning}",
+                )
         return ReEvalResult(
             action="WATCH",
             re_entry_score=score,

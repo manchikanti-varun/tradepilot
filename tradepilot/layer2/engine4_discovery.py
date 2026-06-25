@@ -136,25 +136,41 @@ async def score_stock(
 
     try:
         now = datetime.now()
+        # FIX 1.4: Use IST for timestamp (server may be UTC)
+        from zoneinfo import ZoneInfo
+        now_ist_ts = datetime.now(ZoneInfo("Asia/Kolkata"))
         # Get 5-min candles for last 5 days (for ATR, RSI, MACD, volume)
         candles = await market_data.get_candles(
             symbol, "5m",
             from_dt=now - timedelta(days=5),
             to_dt=now,
         )
-        # Fallback to daily candles if 5m data is insufficient
+        # FIX 6.1 (Option C): If 5m candles are insufficient (e.g. market just opened at 9:15),
+        # try 1-minute candles first — these are available immediately after open.
         if candles.empty or len(candles) < 30:
-            logger.info("5m candles insufficient for %s (%d rows), trying 1d fallback",
+            logger.info("5m candles insufficient for %s (%d rows), trying 1m candles",
                         symbol, len(candles) if not candles.empty else 0)
-            candles = await market_data.get_candles(
-                symbol, "1d",
-                from_dt=now - timedelta(days=60),
+            candles_1m = await market_data.get_candles(
+                symbol, "1m",
+                from_dt=now - timedelta(days=1),
                 to_dt=now,
             )
-            if candles.empty or len(candles) < 15:
-                logger.warning("Daily candles also insufficient for %s (%d rows) — skipping",
-                               symbol, len(candles) if not candles.empty else 0)
-                return None
+            if not candles_1m.empty and len(candles_1m) >= 15:
+                logger.info("Using 1m candles for %s (%d rows) — early market session",
+                            symbol, len(candles_1m))
+                candles = candles_1m
+            else:
+                # Final fallback to daily candles
+                logger.info("1m candles also insufficient for %s, trying 1d fallback", symbol)
+                candles = await market_data.get_candles(
+                    symbol, "1d",
+                    from_dt=now - timedelta(days=60),
+                    to_dt=now,
+                )
+                if candles.empty or len(candles) < 15:
+                    logger.warning("Daily candles also insufficient for %s (%d rows) — skipping",
+                                   symbol, len(candles) if not candles.empty else 0)
+                    return None
 
         ltp = float(candles["close"].iloc[-1])
         closes = candles["close"]
@@ -245,7 +261,14 @@ async def score_stock(
                 momentum_score = max(0, momentum_score - 15)
 
         # --- CIRCUIT LIMIT CHECK (hard filter) ---
-        # If price is within 2% of data range extremes, skip it (likely near circuit)
+        # FIX 5.4: Use intraday move % instead of range-high proximity (more reliable circuit detection)
+        today_open = float(candles["open"].iloc[-1]) if "open" in candles.columns else ltp
+        today_move_pct = abs(ltp - today_open) / today_open * 100 if today_open > 0 else 0
+        if today_move_pct > 10:
+            logger.info("Skipping %s: %.1f%% intraday move — possible circuit", symbol, today_move_pct)
+            return None
+
+        # Also check if near range high (original check, less strict)
         if high_52w > 0 and ltp > 0:
             pct_from_high = (high_52w - ltp) / ltp * 100
             if pct_from_high < 0.5:
@@ -279,7 +302,8 @@ async def score_stock(
             vwap=round(vwap, 2),
             macd=round(macd_hist, 4),
             volume_ratio=round(volume_ratio, 2),
-            timestamp=now,
+            # FIX 1.4: Use IST timestamp
+            timestamp=now_ist_ts,
         )
 
     except Exception as e:

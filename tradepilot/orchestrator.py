@@ -96,6 +96,13 @@ class SignalCard:
     message: str
     priority: int
     generated_at: datetime = field(default_factory=datetime.now)
+    # FIX 1.3: Track when the price was fetched for staleness detection
+    price_timestamp: datetime = field(default_factory=datetime.now)
+
+    @property
+    def price_age_sec(self) -> int:
+        """Seconds since the LTP was fetched."""
+        return int((datetime.now() - self.price_timestamp).total_seconds())
 
 
 @dataclass
@@ -115,6 +122,9 @@ class SystemState:
     last_scan_time: Optional[datetime] = None
     is_running: bool = False
     last_error: Optional[str] = None
+    # FIX 1.2: Dead-feed detection counter
+    consecutive_data_failures: int = 0
+    MAX_DATA_FAILURES: int = 3
 
 
 _state: Optional[SystemState] = None
@@ -192,14 +202,24 @@ async def _run_live_pipeline_inner():
         )
 
     # Engine 1: Market data
+    # FIX 1.2: Dead-feed detection — halt signals after 3 consecutive failures
     try:
         vix = await state.market_data.get_vix()
+        state.consecutive_data_failures = 0  # Reset on success
     except Exception:
+        state.consecutive_data_failures += 1
+        if state.consecutive_data_failures >= state.MAX_DATA_FAILURES:
+            logger.error("DEAD FEED: %d consecutive data failures — halting signals",
+                         state.consecutive_data_failures)
+            state.signals = []
+            return
         vix = 14.0
 
-    # Market mode from VIX
+    # FIX 3.2: Market mode from VIX + Nifty trend (TRENDING was previously unreachable)
     if vix > 22:
         state.market_mode = MarketMode.HIGH_VOL
+    elif nifty_change > 0.8:
+        state.market_mode = MarketMode.TRENDING
     else:
         state.market_mode = MarketMode.NORMAL
 
@@ -284,6 +304,25 @@ async def _run_live_pipeline_inner():
     state.active_trade = await state.tracker.get_active_trade()
     if state.active_trade is not None:
         return
+
+    # FIX 3.3: Check Angel One for external positions not tracked by TradePilot
+    try:
+        if hasattr(state.market_data, '_angel') and state.market_data._angel is not None:
+            from tradepilot.layer1.angel_provider import _session
+            if _session.is_logged_in and _session.smart_api:
+                loop = asyncio.get_event_loop()
+                positions = await loop.run_in_executor(
+                    None, _session.smart_api.position
+                )
+                if positions and positions.get("data"):
+                    open_positions = [p for p in positions["data"] if float(p.get("netqty", 0)) != 0]
+                    if open_positions:
+                        logger.warning("External Angel One positions detected (%d) — skipping signal generation",
+                                       len(open_positions))
+                        state.signals = []
+                        return
+    except Exception as e:
+        logger.debug("Angel One position check unavailable: %s", str(e)[:60])
 
     # Filter to allowed grades — full capital on best picks only
     min_grade_set = {Grade.A_PLUS, Grade.A, Grade.B}
@@ -738,6 +777,18 @@ async def _generate_morning_brief_inner() -> MorningBrief:
             "yesterday_drag": yesterday_drag or 0,
             "events": ", ".join([e.get("name", "") for e in (events_today or [])]) or "None",
         })
+
+        # FIX 8.3: Validate AI summary against actual data — check VIX claims
+        if ai_summary:
+            import re
+            vix_matches = re.findall(r'[Vv][Ii][Xx].*?(\d+\.?\d*)', ai_summary)
+            for v in vix_matches:
+                try:
+                    if abs(float(v) - vix) > 3:
+                        ai_summary += f" [Note: Actual VIX is {vix:.1f}]"
+                        break
+                except ValueError:
+                    pass
     except Exception as e:
         logger.debug("AI morning brief unavailable: %s", str(e)[:60])
 
