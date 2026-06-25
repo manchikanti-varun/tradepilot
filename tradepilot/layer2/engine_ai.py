@@ -25,7 +25,6 @@ import aiohttp
 logger = logging.getLogger(__name__)
 
 GROQ_API_KEY = os.environ.get("GROQ_API_KEY", "")
-CEREBRAS_API_KEY = os.environ.get("CEREBRAS_API_KEY", "")
 
 
 # ═══════════════════════════════════════════════════════════════
@@ -344,46 +343,44 @@ Respond ONLY in this JSON format:
 
 
 async def analyze_with_gemini(symbol: str, data: dict) -> Optional[dict]:
-    """Get analysis from second AI via Cerebras (fastest free inference)."""
-    if not CEREBRAS_API_KEY:
-        logger.warning("CEREBRAS_API_KEY not set")
+    """Get analysis from second AI — uses Groq with a different model for independent opinion."""
+    if not GROQ_API_KEY:
         return None
 
     prompt = _build_prompt(symbol, data)
-    url = "https://api.cerebras.ai/v1/chat/completions"
+    url = "https://api.groq.com/openai/v1/chat/completions"
 
     payload = {
-        "model": "gpt-oss-120b",
+        "model": "llama-4-scout-17b-16e-instruct",
         "messages": [{"role": "user", "content": prompt}],
-        "temperature": 0.3,
+        "temperature": 0.4,
         "max_tokens": 600,
     }
 
     headers = {
-        "Authorization": f"Bearer {CEREBRAS_API_KEY}",
+        "Authorization": f"Bearer {GROQ_API_KEY}",
         "Content-Type": "application/json",
     }
 
     try:
         async with aiohttp.ClientSession() as session:
-            async with session.post(url, json=payload, headers=headers, timeout=aiohttp.ClientTimeout(total=30)) as resp:
+            async with session.post(url, json=payload, headers=headers, timeout=aiohttp.ClientTimeout(total=20)) as resp:
                 if resp.status != 200:
                     body = await resp.text()
-                    logger.warning("Cerebras returned %d: %s", resp.status, body[:200])
+                    logger.warning("Groq (second model) returned %d: %s", resp.status, body[:200])
                     return None
                 result = await resp.json()
 
         text = result.get("choices", [{}])[0].get("message", {}).get("content", "")
         if not text:
-            logger.warning("Cerebras returned empty response")
             return None
-        return _parse_ai_response(text, "Cerebras")
+        return _parse_ai_response(text, "Groq-Scout")
 
     except asyncio.TimeoutError:
-        logger.warning("Cerebras timed out")
+        logger.warning("Groq (second model) timed out")
         return None
     except Exception as e:
-        logger.warning("Cerebras failed: %s", str(e)[:150])
+        logger.warning("Groq (second model) failed: %s", str(e)[:100])
         return None
 
 

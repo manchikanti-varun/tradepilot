@@ -85,18 +85,18 @@ export default function StockDetailModal({ symbol, onClose }) {
                     }`}>{plan.ai_analysis.confidence} confidence</span>
                   </div>
 
-                  {/* Cerebras Opinion */}
+                  {/* Llama Scout Opinion */}
                   <div className="bg-dark-900/50 rounded-lg p-2.5 mb-2">
                     <div className="flex items-center gap-1.5 mb-1">
                       <div className="w-3 h-3 rounded-full bg-blue-500" />
-                      <span className="text-[9px] font-bold text-blue-400">CEREBRAS</span>
+                      <span className="text-[9px] font-bold text-blue-400">LLAMA SCOUT</span>
                       {plan.ai_analysis.gemini_says
                         ? <span className="text-[9px] text-gray-500 ml-auto">responded</span>
                         : <span className="text-[9px] text-red-400 ml-auto">unavailable</span>
                       }
                     </div>
                     <p className="text-[10px] text-gray-300 leading-relaxed">
-                      {plan.ai_analysis.gemini_says || "Cerebras did not respond — using Groq only"}
+                      {plan.ai_analysis.gemini_says || "Llama Scout did not respond — using Groq only"}
                     </p>
                   </div>
 
@@ -111,7 +111,7 @@ export default function StockDetailModal({ symbol, onClose }) {
                       }
                     </div>
                     <p className="text-[10px] text-gray-300 leading-relaxed">
-                      {plan.ai_analysis.groq_says || "Groq did not respond — using Cerebras only"}
+                      {plan.ai_analysis.groq_says || "Groq did not respond — using Llama Scout only"}
                     </p>
                   </div>
                 </div>

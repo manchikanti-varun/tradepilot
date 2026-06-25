@@ -1887,17 +1887,17 @@ async def debug_gemini_test():
 
     results = {}
 
-    # Test Cerebras (second AI)
-    cerebras_key = os.environ.get("CEREBRAS_API_KEY", "")
-    if cerebras_key:
+    # Test Groq second model (Llama Scout)
+    groq_key = os.environ.get("GROQ_API_KEY", "")
+    if groq_key:
         try:
-            url = "https://api.cerebras.ai/v1/chat/completions"
+            url = "https://api.groq.com/openai/v1/chat/completions"
             payload = {
-                "model": "gpt-oss-120b",
+                "model": "llama-4-scout-17b-16e-instruct",
                 "messages": [{"role": "user", "content": "Say hello in JSON: {\"message\": \"hello\"}"}],
                 "temperature": 0.1, "max_tokens": 50,
             }
-            headers = {"Authorization": f"Bearer {cerebras_key}", "Content-Type": "application/json"}
+            headers = {"Authorization": f"Bearer {groq_key}", "Content-Type": "application/json"}
             async with aiohttp.ClientSession() as session:
                 async with session.post(url, json=payload, headers=headers, timeout=aiohttp.ClientTimeout(total=15)) as resp:
                     status = resp.status
@@ -1906,16 +1906,16 @@ async def debug_gemini_test():
                         import json
                         data = json.loads(body)
                         text = data.get("choices", [{}])[0].get("message", {}).get("content", "")
-                        results["cerebras"] = {"status": "success", "model": "gpt-oss-120b", "response": text[:200]}
+                        results["groq_scout"] = {"status": "success", "model": "llama-4-scout-17b", "response": text[:200]}
                     else:
-                        results["cerebras"] = {"status": "error", "http_status": status, "body": body[:300]}
+                        results["groq_scout"] = {"status": "error", "http_status": status, "body": body[:300]}
         except Exception as e:
-            results["cerebras"] = {"status": "error", "reason": str(e)[:200]}
+            results["groq_scout"] = {"status": "error", "reason": str(e)[:200]}
     else:
-        results["cerebras"] = {"status": "not_configured", "fix": "Set CEREBRAS_API_KEY env var — get it free at cerebras.ai"}
+        results["groq_scout"] = {"status": "not_configured"}
 
-    # Gemini removed
-    results["openrouter"] = {"status": "removed", "note": "Replaced by Cerebras"}
+    # No other providers
+    results["other"] = {"note": "Both AIs run on Groq (Llama 3.3 70B + Llama 4 Scout)"}
 
     # Test Groq
     groq_key = os.environ.get("GROQ_API_KEY", "")
