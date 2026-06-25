@@ -1,10 +1,11 @@
 """Yahoo Finance market data provider — cloud-server hardened.
 
 Key changes for Railway/cloud deployment:
-- Uses yf.download() (batch API) instead of Ticker.history() — more reliable from server IPs
+- Updated to work with yfinance >= 1.4 (Yahoo API changed Feb 2025)
+- Uses yf.download() (batch API) — more reliable from server IPs
 - Custom session with browser-like User-Agent to avoid Yahoo's bot detection
 - Reduced concurrency (max 3) to avoid rate limits
-- Hard per-call timeouts (10s) to prevent hanging
+- Hard per-call timeouts (15s) to prevent hanging
 - Graceful degradation with stale cache on failure
 """
 
@@ -15,9 +16,6 @@ from typing import Optional
 
 import pandas as pd
 import yfinance as yf
-from requests import Session
-from requests.adapters import HTTPAdapter
-from urllib3.util.retry import Retry
 
 from tradepilot.layer1.base import (
     MarketDataProvider,
@@ -40,36 +38,6 @@ def _nse_symbol(symbol: str) -> str:
     return f"{symbol}.NS"
 
 
-def _make_session() -> Session:
-    """Create a requests session with browser-like headers and retry logic."""
-    session = Session()
-    session.headers.update({
-        "User-Agent": (
-            "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
-            "AppleWebKit/537.36 (KHTML, like Gecko) "
-            "Chrome/125.0.0.0 Safari/537.36"
-        ),
-        "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
-        "Accept-Language": "en-US,en;q=0.5",
-    })
-    retry = Retry(total=2, backoff_factor=0.5, status_forcelist=[429, 500, 502, 503, 504])
-    adapter = HTTPAdapter(max_retries=retry)
-    session.mount("https://", adapter)
-    session.mount("http://", adapter)
-    return session
-
-
-# Global session reused across calls
-_session: Optional[Session] = None
-
-
-def _get_session() -> Session:
-    global _session
-    if _session is None:
-        _session = _make_session()
-    return _session
-
-
 async def _run_with_backoff(func, *args, retries: int = _MAX_RETRIES):
     """Execute a blocking function with semaphore + timeout + backoff."""
     loop = asyncio.get_event_loop()
@@ -85,8 +53,8 @@ async def _run_with_backoff(func, *args, retries: int = _MAX_RETRIES):
             except asyncio.TimeoutError:
                 last_error = f"Timeout after {_PER_CALL_TIMEOUT}s"
                 logger.warning(
-                    "Yahoo fetch timed out (attempt %d/%d): %s",
-                    attempt + 1, retries, args[0] if args else "unknown",
+                    "Yahoo fetch timed out (attempt %d/%d)",
+                    attempt + 1, retries,
                 )
             except Exception as e:
                 last_error = str(e)
@@ -102,12 +70,33 @@ async def _run_with_backoff(func, *args, retries: int = _MAX_RETRIES):
     raise RuntimeError(f"All {retries} attempts failed: {last_error}")
 
 
-class YahooFinanceProvider(MarketDataProvider):
-    """Market data from Yahoo Finance — cloud-hardened.
-
-    Uses yf.download() (the batch/reliable API) instead of Ticker methods
-    where possible, since download() handles server IPs better.
+def _normalize_download_df(df: pd.DataFrame) -> pd.DataFrame:
+    """Normalize yf.download() output to standard columns.
+    
+    yfinance >= 1.0 may return MultiIndex columns. This flattens them.
     """
+    if df.empty:
+        return pd.DataFrame(columns=["timestamp", "open", "high", "low", "close", "volume"])
+    
+    # Handle MultiIndex columns (yfinance >= 1.0 with single ticker)
+    if isinstance(df.columns, pd.MultiIndex):
+        # For single ticker download, drop the ticker level
+        df.columns = df.columns.droplevel("Ticker") if "Ticker" in df.columns.names else [col[0] for col in df.columns]
+    
+    df = df.reset_index()
+    col_map = {
+        "Date": "timestamp", "Datetime": "timestamp",
+        "Open": "open", "High": "high", "Low": "low",
+        "Close": "close", "Volume": "volume",
+    }
+    df = df.rename(columns=col_map)
+    std_cols = ["timestamp", "open", "high", "low", "close", "volume"]
+    available = [c for c in std_cols if c in df.columns]
+    return df[available]
+
+
+class YahooFinanceProvider(MarketDataProvider):
+    """Market data from Yahoo Finance — cloud-hardened for yfinance >= 1.4."""
 
     def __init__(self):
         self._ltp_cache: dict[str, tuple[float, datetime]] = {}
@@ -125,18 +114,16 @@ class YahooFinanceProvider(MarketDataProvider):
 
         def _fetch():
             yf_sym = _nse_symbol(symbol)
-            data = yf.download(
-                yf_sym, period="1d", interval="1m",
-                progress=False, session=_get_session(),
-            )
+            # Try 1-minute data first for freshest price
+            data = yf.download(yf_sym, period="1d", interval="1m", progress=False)
             if data.empty:
-                # Fallback: try daily
-                data = yf.download(
-                    yf_sym, period="5d", interval="1d",
-                    progress=False, session=_get_session(),
-                )
+                # Fallback: daily data
+                data = yf.download(yf_sym, period="5d", interval="1d", progress=False)
             if data.empty:
                 return 0.0
+            # Handle MultiIndex columns
+            if isinstance(data.columns, pd.MultiIndex):
+                data.columns = data.columns.droplevel("Ticker") if "Ticker" in data.columns.names else [col[0] for col in data.columns]
             return float(data["Close"].dropna().iloc[-1])
 
         try:
@@ -163,43 +150,25 @@ class YahooFinanceProvider(MarketDataProvider):
         interval_map = {"1m": "1m", "5m": "5m", "15m": "15m", "1h": "1h", "1d": "1d"}
         yf_interval = interval_map.get(interval, "5m")
 
-        # For intraday intervals, Yahoo limits history to 60 days max
-        # and 5m is limited to last 60 days
+        # For intraday intervals, use period param (more reliable)
         if yf_interval in ("1m", "5m", "15m"):
-            period = "5d" if yf_interval == "5m" else "1d"
+            period = "5d" if yf_interval in ("5m", "15m") else "1d"
         else:
-            period = None  # Use start/end for daily
+            period = None
 
         def _fetch():
             yf_sym = _nse_symbol(symbol)
             if period:
-                df = yf.download(
-                    yf_sym, period=period, interval=yf_interval,
-                    progress=False, session=_get_session(),
-                )
+                df = yf.download(yf_sym, period=period, interval=yf_interval, progress=False)
             else:
                 df = yf.download(
                     yf_sym,
                     start=from_dt.strftime("%Y-%m-%d"),
                     end=(to_dt + timedelta(days=1)).strftime("%Y-%m-%d"),
                     interval=yf_interval,
-                    progress=False, session=_get_session(),
+                    progress=False,
                 )
-            if df.empty:
-                return pd.DataFrame(columns=["timestamp", "open", "high", "low", "close", "volume"])
-            df = df.reset_index()
-            # Handle multi-level columns from yf.download
-            if isinstance(df.columns, pd.MultiIndex):
-                df.columns = [col[0] if col[1] == '' else col[0] for col in df.columns]
-            col_map = {
-                "Date": "timestamp", "Datetime": "timestamp",
-                "Open": "open", "High": "high", "Low": "low",
-                "Close": "close", "Volume": "volume",
-            }
-            df = df.rename(columns=col_map)
-            std_cols = ["timestamp", "open", "high", "low", "close", "volume"]
-            available = [c for c in std_cols if c in df.columns]
-            return df[available]
+            return _normalize_download_df(df)
 
         try:
             result = await _run_with_backoff(_fetch)
@@ -234,17 +203,13 @@ class YahooFinanceProvider(MarketDataProvider):
     async def get_nifty_value(self) -> float:
         """Get current Nifty 50 value."""
         def _fetch():
-            data = yf.download(
-                "^NSEI", period="1d", interval="1m",
-                progress=False, session=_get_session(),
-            )
+            data = yf.download("^NSEI", period="1d", interval="1m", progress=False)
             if data.empty:
-                data = yf.download(
-                    "^NSEI", period="5d", interval="1d",
-                    progress=False, session=_get_session(),
-                )
+                data = yf.download("^NSEI", period="5d", interval="1d", progress=False)
             if data.empty:
                 return 0.0
+            if isinstance(data.columns, pd.MultiIndex):
+                data.columns = data.columns.droplevel("Ticker") if "Ticker" in data.columns.names else [col[0] for col in data.columns]
             return float(data["Close"].dropna().iloc[-1])
 
         try:
@@ -256,12 +221,11 @@ class YahooFinanceProvider(MarketDataProvider):
     async def get_vix(self) -> float:
         """Get India VIX value."""
         def _fetch():
-            data = yf.download(
-                "^INDIAVIX", period="5d", interval="1d",
-                progress=False, session=_get_session(),
-            )
+            data = yf.download("^INDIAVIX", period="5d", interval="1d", progress=False)
             if data.empty:
                 return 14.0
+            if isinstance(data.columns, pd.MultiIndex):
+                data.columns = data.columns.droplevel("Ticker") if "Ticker" in data.columns.names else [col[0] for col in data.columns]
             return float(data["Close"].dropna().iloc[-1])
 
         try:
@@ -271,7 +235,7 @@ class YahooFinanceProvider(MarketDataProvider):
             return 14.0
 
     async def get_bulk_ltp(self, symbols: list[str]) -> dict[str, float]:
-        """Batch LTP fetch via yf.download()."""
+        """Batch LTP fetch via yf.download() with multiple tickers."""
         if not symbols:
             return {}
 
@@ -281,18 +245,23 @@ class YahooFinanceProvider(MarketDataProvider):
             try:
                 data = yf.download(
                     yf_symbols, period="1d", interval="1d",
-                    progress=False, threads=True,
-                    group_by="ticker", session=_get_session(),
+                    progress=False, threads=True, group_by="ticker",
                 )
                 if data.empty:
                     return results
                 for sym, yf_sym in zip(symbols, yf_symbols):
                     try:
                         if len(yf_symbols) > 1:
-                            if yf_sym in data.columns.get_level_values(0):
-                                val = data[yf_sym]["Close"].dropna().iloc[-1]
+                            if isinstance(data.columns, pd.MultiIndex):
+                                if yf_sym in data.columns.get_level_values(0):
+                                    val = data[yf_sym]["Close"].dropna().iloc[-1]
+                                    results[sym] = float(val)
+                            else:
+                                val = data["Close"].dropna().iloc[-1]
                                 results[sym] = float(val)
                         else:
+                            if isinstance(data.columns, pd.MultiIndex):
+                                data.columns = data.columns.droplevel("Ticker")
                             val = data["Close"].dropna().iloc[-1]
                             results[sym] = float(val)
                     except (KeyError, IndexError):
