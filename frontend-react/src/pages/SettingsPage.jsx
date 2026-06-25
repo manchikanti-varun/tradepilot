@@ -32,7 +32,7 @@ export default function SettingsPage({ growth, onCapitalUpdate }) {
 
   const handleCapitalSave = () => {
     const val = parseFloat(capitalInput)
-    if (val >= 1000 && val <= 100000) {
+    if (val >= 1000) {
       onCapitalUpdate(val)
       setCapitalInput('')
     }

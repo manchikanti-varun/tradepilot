@@ -36,7 +36,7 @@ def lookup_tier(capital: float) -> CapitalTier:
 
 def get_next_tier_threshold(tier: CapitalTier) -> float:
     return {CapitalTier.A: 2000.0, CapitalTier.B: 5000.0,
-            CapitalTier.C: 10000.0, CapitalTier.D: 20000.0}[tier]
+            CapitalTier.C: 10000.0, CapitalTier.D: 10000000.0}[tier]
 
 
 async def get_growth_state() -> GrowthState:

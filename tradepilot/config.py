@@ -102,7 +102,7 @@ TIER_CONFIGS = {
     ),
     CapitalTier.D: TierConfig(
         tier=CapitalTier.D,
-        range_min=10000, range_max=20000,
+        range_min=10000, range_max=10000000,
         max_risk_pct_proven=15.0, max_risk_pct_unproven=5.0,
         leverage=5.0, price_max_formula="3000",
         watchlist_source="Nifty500",

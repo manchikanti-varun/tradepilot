@@ -1566,7 +1566,7 @@ async def save_user_settings(request: Request):
 
 
 class CapitalUpdate(BaseModel):
-    capital: float = Field(..., ge=1000, le=20000)
+    capital: float = Field(..., ge=1000, le=10000000)
 
 
 @app.post("/api/capital")
