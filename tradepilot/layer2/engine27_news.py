@@ -60,11 +60,12 @@ BEARISH_WORDS = [
 @dataclass
 class NewsItem:
     title: str
-    summary: str  # Simple 1-line summary
+    summary: str  # Simple 1-line explanation of what this means
     source: str
     category: str
     sentiment: str  # "BULLISH", "BEARISH", "NEUTRAL"
     sentiment_score: int  # 0-100 (50=neutral, >50=bullish, <50=bearish)
+    impact: str  # "HIGH", "MEDIUM", "LOW" — how much this affects the market
     published: Optional[str] = None
     link: Optional[str] = None
 
@@ -103,10 +104,113 @@ def _compute_sentiment(text: str) -> tuple[str, int]:
     return "NEUTRAL", score
 
 
+def _compute_impact(title: str, category: str) -> str:
+    """Determine how impactful this news is for trading."""
+    title_lower = title.lower()
+    high_impact = ["rbi", "fed", "nifty", "sensex", "budget", "policy", "rate",
+                   "fii", "dii", "ban", "crash", "circuit", "halt", "tariff",
+                   "inflation", "gdp", "trade deal", "war", "election"]
+    medium_impact = ["quarterly", "earnings", "results", "sector", "index",
+                     "upgrade", "downgrade", "target", "ipo", "listing"]
+
+    if any(w in title_lower for w in high_impact):
+        return "HIGH"
+    if any(w in title_lower for w in medium_impact):
+        return "MEDIUM"
+    return "LOW"
+
+
+def _generate_simple_explanation(title: str, sentiment: str) -> str:
+    """Generate a simple 1-line explanation that anyone can understand.
+    
+    This tells the reader: what happened + what it means for stocks.
+    """
+    title_lower = title.lower()
+
+    # Stock-specific news
+    if "rise" in title_lower or "surge" in title_lower or "jump" in title_lower or "soar" in title_lower:
+        # Extract stock name if possible
+        return "This stock is going up. Positive momentum — could continue if volume supports it."
+    if "fall" in title_lower or "drop" in title_lower or "plunge" in title_lower or "tumble" in title_lower:
+        return "This stock/sector is falling. Stay away unless you see a reversal setup."
+
+    # Market-wide
+    if "nifty" in title_lower or "sensex" in title_lower:
+        if sentiment == "BULLISH":
+            return "Indian market indices are doing well. Good day to look for buying opportunities."
+        elif sentiment == "BEARISH":
+            return "Market indices are weak. Be careful — wait for things to stabilize before buying."
+        return "Market is moving sideways. No clear direction — pick only strong individual stocks."
+
+    # FII/DII
+    if "fii" in title_lower or "dii" in title_lower:
+        if "buy" in title_lower or "inflow" in title_lower:
+            return "Big institutions are putting money into Indian stocks. This is a positive sign."
+        if "sell" in title_lower or "outflow" in title_lower:
+            return "Big institutions are pulling money out. Markets may stay under pressure."
+        return "Institutional money flow update — check if they're buying or selling."
+
+    # RBI / Policy
+    if "rbi" in title_lower or "rate" in title_lower:
+        if "cut" in title_lower:
+            return "Interest rate cut expected/announced. Good for banks and overall market."
+        if "hike" in title_lower:
+            return "Interest rate hike — can slow down growth. Be cautious with high-debt stocks."
+        return "Central bank policy update — can move the whole market. Watch closely."
+
+    # Earnings/Results
+    if "earnings" in title_lower or "results" in title_lower or "profit" in title_lower:
+        if sentiment == "BULLISH":
+            return "Good company results. Stock may rally — check if already priced in."
+        elif sentiment == "BEARISH":
+            return "Weak results reported. Stock may fall further. Avoid catching the dip."
+        return "Company results are out. Read the numbers before trading this stock."
+
+    # Trade/Tariff
+    if "tariff" in title_lower or "trade deal" in title_lower or "trade war" in title_lower:
+        if sentiment == "BULLISH":
+            return "Trade tensions easing. Export stocks and IT may benefit."
+        return "Trade uncertainty — can affect IT, pharma, and export stocks. Stay cautious."
+
+    # Sector news
+    if "sector" in title_lower or "metal" in title_lower or "pharma" in title_lower or "it " in title_lower or "bank" in title_lower:
+        if sentiment == "BULLISH":
+            return "This sector is showing strength. Look for the best stock within it."
+        elif sentiment == "BEARISH":
+            return "This sector is weak right now. Avoid stocks from this group today."
+        return "Sector-level news — may affect multiple stocks in this space."
+
+    # IPO/Listing
+    if "ipo" in title_lower or "listing" in title_lower:
+        return "New stock listing or IPO news. Usually creates short-term volatility."
+
+    # US Market
+    if "us market" in title_lower or "wall street" in title_lower or "nasdaq" in title_lower or "dow" in title_lower:
+        if sentiment == "BULLISH":
+            return "US markets did well. Indian markets often follow — positive opening likely."
+        elif sentiment == "BEARISH":
+            return "US markets fell. Indian markets may open weak. Wait before buying."
+        return "US market update — Indian markets usually take cues from this."
+
+    # Global
+    if "global" in title_lower or "world" in title_lower:
+        return "Global news that may affect Indian markets indirectly. Keep an eye on it."
+
+    # Default based on sentiment
+    if sentiment == "BULLISH":
+        return "Positive development — could support stock prices going up."
+    elif sentiment == "BEARISH":
+        return "Negative development — might put pressure on stock prices."
+    return "Market news — no strong impact expected either way."
+
+
 def _simplify_headline(title: str) -> str:
     """Make headline simpler and shorter for quick reading."""
+    # Fix HTML entities
+    import html
+    title = html.unescape(title)
     # Remove common prefixes
-    title = re.sub(r'^(LIVE|BREAKING|UPDATE|ALERT):\s*', '', title, flags=re.IGNORECASE)
+    title = re.sub(r'^(LIVE|BREAKING|UPDATE|ALERT|WATCH):\s*', '', title, flags=re.IGNORECASE)
     # Remove extra whitespace
     title = ' '.join(title.split())
     # Cap length
@@ -152,13 +256,19 @@ async def _fetch_feed(session: aiohttp.ClientSession, feed: dict) -> list[NewsIt
             combined = f"{title} {desc}"
             sentiment, score = _compute_sentiment(combined)
 
+            # Generate simple explanation and impact level
+            clean_title = _simplify_headline(title)
+            explanation = _generate_simple_explanation(clean_title, sentiment)
+            impact = _compute_impact(clean_title, feed["category"])
+
             items.append(NewsItem(
-                title=_simplify_headline(title),
-                summary=desc[:150] if desc else title,
+                title=clean_title,
+                summary=explanation,
                 source=feed["name"],
                 category=feed["category"],
                 sentiment=sentiment,
                 sentiment_score=score,
+                impact=impact,
                 published=pub_date,
                 link=link,
             ))
@@ -206,8 +316,9 @@ async def fetch_market_news() -> MarketNewsState:
             seen_titles.add(title_key)
             unique_items.append(item)
 
-    # Sort by relevance: market category first, then by recency
-    unique_items.sort(key=lambda x: (0 if x.category == "market" else 1))
+    # Sort by impact first (HIGH > MEDIUM > LOW), then by market category
+    impact_order = {"HIGH": 0, "MEDIUM": 1, "LOW": 2}
+    unique_items.sort(key=lambda x: (impact_order.get(x.impact, 2), 0 if x.category == "market" else 1))
 
     # Compute overall mood
     if unique_items:

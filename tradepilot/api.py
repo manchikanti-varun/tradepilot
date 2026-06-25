@@ -380,6 +380,7 @@ async def get_news():
                 "summary": item.summary,
                 "source": item.source,
                 "sentiment": item.sentiment,
+                "impact": item.impact,
                 "published": item.published,
             }
             for item in news_state.items

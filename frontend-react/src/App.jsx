@@ -1,19 +1,19 @@
 import { useState, useEffect, useCallback } from 'react'
 import { api, formatClock } from './api'
-import { LayoutDashboard, Radio, BarChart3, History, Settings, Wallet } from 'lucide-react'
+import { LayoutDashboard, Radio, BarChart3, History, Newspaper } from 'lucide-react'
 import Dashboard from './pages/Dashboard'
 import WatchlistPage from './pages/WatchlistPage'
 import HistoryPage from './pages/HistoryPage'
 import StatsPage from './pages/StatsPage'
-import SettingsPage from './pages/SettingsPage'
+import NewsPage from './pages/NewsPage'
 import Toast from './components/Toast'
 
 const NAV_ITEMS = [
   { id: 'dashboard', label: 'Home', icon: LayoutDashboard },
   { id: 'watchlist', label: 'Watchlist', icon: Radio },
+  { id: 'news', label: 'News', icon: Newspaper },
   { id: 'history', label: 'Trades', icon: History },
   { id: 'stats', label: 'Stats', icon: BarChart3 },
-  { id: 'settings', label: 'Settings', icon: Settings },
 ]
 
 export default function App() {
@@ -24,7 +24,6 @@ export default function App() {
   const [signals, setSignals] = useState(null)
   const [perf, setPerf] = useState(null)
   const [brief, setBrief] = useState(null)
-  const [news, setNews] = useState(null)
   const [rejections, setRejections] = useState(null)
   const [toast, setToast] = useState(null)
   const [clock, setClock] = useState(formatClock())
@@ -48,12 +47,9 @@ export default function App() {
   useEffect(() => {
     fetchAll()
     api.brief().then(setBrief).catch(() => {})
-    api.news().then(setNews).catch(() => {})
     const t1 = setInterval(fetchAll, 30000)
     const t2 = setInterval(() => setClock(formatClock()), 1000)
-    // Refresh news every 5 min
-    const t3 = setInterval(() => api.news().then(setNews).catch(() => {}), 300000)
-    return () => { clearInterval(t1); clearInterval(t2); clearInterval(t3) }
+    return () => { clearInterval(t1); clearInterval(t2) }
   }, [fetchAll])
 
   const handleIntake = async (text) => {
@@ -80,7 +76,7 @@ export default function App() {
     } catch { showToast('Network error', 'error') }
   }
 
-  const ctx = { state, growth, position, signals, perf, brief, news, rejections, clock, handleIntake, handleCapitalUpdate, fetchAll }
+  const ctx = { state, growth, position, signals, perf, brief, rejections, clock, handleIntake, handleCapitalUpdate, fetchAll }
 
   return (
     <div className="flex flex-col h-screen bg-dark-900">
@@ -89,9 +85,9 @@ export default function App() {
         <div className="max-w-lg mx-auto px-4 pt-2">
           {page === 'dashboard' && <Dashboard {...ctx} />}
           {page === 'watchlist' && <WatchlistPage />}
+          {page === 'news' && <NewsPage />}
           {page === 'history' && <HistoryPage />}
           {page === 'stats' && <StatsPage perf={perf} />}
-          {page === 'settings' && <SettingsPage growth={growth} onCapitalUpdate={handleCapitalUpdate} />}
         </div>
       </div>
 
