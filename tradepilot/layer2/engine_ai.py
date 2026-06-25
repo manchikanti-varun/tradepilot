@@ -351,7 +351,7 @@ async def analyze_with_gemini(symbol: str, data: dict) -> Optional[dict]:
     url = "https://api.groq.com/openai/v1/chat/completions"
 
     payload = {
-        "model": "llama-4-scout-17b-16e-instruct",
+        "model": "meta-llama/llama-4-scout-17b-16e-instruct",
         "messages": [{"role": "user", "content": prompt}],
         "temperature": 0.4,
         "max_tokens": 600,

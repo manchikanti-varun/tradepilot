@@ -1893,7 +1893,7 @@ async def debug_gemini_test():
         try:
             url = "https://api.groq.com/openai/v1/chat/completions"
             payload = {
-                "model": "llama-4-scout-17b-16e-instruct",
+                "model": "meta-llama/llama-4-scout-17b-16e-instruct",
                 "messages": [{"role": "user", "content": "Say hello in JSON: {\"message\": \"hello\"}"}],
                 "temperature": 0.1, "max_tokens": 50,
             }
