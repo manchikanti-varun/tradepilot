@@ -4,8 +4,9 @@ import GrowthCard from '../components/GrowthCard'
 import PositionCard from '../components/PositionCard'
 import SignalCard from '../components/SignalCard'
 import BriefCard from '../components/BriefCard'
+import NewsCard from '../components/NewsCard'
 
-export default function Dashboard({ state, growth, position, signals, brief, rejections, clock, handleIntake, handleCapitalUpdate }) {
+export default function Dashboard({ state, growth, position, signals, brief, news, rejections, clock, handleIntake, handleCapitalUpdate }) {
   return (
     <>
       {/* Header */}
@@ -47,6 +48,9 @@ export default function Dashboard({ state, growth, position, signals, brief, rej
 
       {/* Brief */}
       {brief && <BriefCard brief={brief} />}
+
+      {/* News */}
+      <NewsCard news={news} />
 
       {/* Growth */}
       {growth && <GrowthCard growth={growth} onUpdate={handleCapitalUpdate} />}

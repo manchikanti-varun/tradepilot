@@ -128,8 +128,11 @@ POSITION_MONITOR_INTERVAL_SEC = 60  # 1 min
 PREMARKET_INTERVAL_SEC = 480  # 8 min
 
 # Scoring thresholds
-MIN_COMPOSITE_FOR_ENTRY = 75  # Grade A or A+
-MIN_COMPOSITE_A_PLUS = 85
+# NOTE: With news_score hardcoded at 55 (Phase 0), reaching 75 requires
+# near-perfect technicals + volume + momentum. Threshold adjusted to 65
+# for the unproven/validation phase. Will tighten once real news engine is live.
+MIN_COMPOSITE_FOR_ENTRY = 65  # Grade B+ minimum (A/A+ preferred)
+MIN_COMPOSITE_A_PLUS = 80
 CHARGE_GATE_MAX_BREAKEVEN_PCT = 1.8
 CHARGE_GATE_MIN_RR = 1.0
 

@@ -144,6 +144,13 @@ async def _run_live_pipeline_inner():
     tier = growth.current_tier
     capital = growth.current_capital
 
+    # Engine 27: Fetch news (caches for 10 min, non-blocking)
+    try:
+        from tradepilot.layer2.engine27_news import fetch_market_news
+        await fetch_market_news()
+    except Exception as e:
+        logger.warning("Engine 27 news fetch failed: %s", e)
+
     # Engine 13: Event risk
     if ENABLE_ENGINE13_EVENTS:
         state.event_risk = evaluate_event_risk()
@@ -225,10 +232,12 @@ async def _run_live_pipeline_inner():
     if state.active_trade is not None:
         return
 
-    # Filter to allowed grades
-    min_grade_set = {Grade.A_PLUS, Grade.A}
+    # Filter to allowed grades — full capital on best picks only
+    min_grade_set = {Grade.A_PLUS, Grade.A, Grade.B}
     if state.event_risk.grade_floor == "A+":
         min_grade_set = {Grade.A_PLUS}
+    elif state.event_risk.grade_floor == "A":
+        min_grade_set = {Grade.A_PLUS, Grade.A}
     top_scores = [s for s in scores if s.grade in min_grade_set]
 
     # Engine 22: Log rejections

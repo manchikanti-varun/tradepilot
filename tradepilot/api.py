@@ -21,6 +21,7 @@ from tradepilot.scheduler import start_scheduler, stop_scheduler
 from tradepilot.layer2.engine21_growth import get_growth_state
 from tradepilot.layer2.engine22_rejections import get_daily_rejection_summary
 from tradepilot.layer2.engine24_reality import run_reality_check, check_mvp_exit_criteria
+from tradepilot.layer2.engine27_news import fetch_market_news
 from tradepilot.layer3.tracker import TradeTracker
 from tradepilot.config import (
     ENABLE_ENGINE18_COACH, ENABLE_ENGINE20_SELF_AUDIT,
@@ -361,6 +362,28 @@ async def get_growth():
         "drawdown_from_peak_pct": growth.drawdown_from_peak_pct,
         "capital_last_confirmed": growth.capital_last_confirmed,
         "is_proven": growth.is_proven,
+    }
+
+
+@app.get("/api/news")
+async def get_news():
+    """Market news feed — simple summaries from Moneycontrol & ET."""
+    news_state = await fetch_market_news()
+    return {
+        "mood": news_state.overall_mood,
+        "mood_score": news_state.mood_score,
+        "count": len(news_state.items),
+        "last_fetched": news_state.last_fetched.isoformat() if news_state.last_fetched else None,
+        "items": [
+            {
+                "title": item.title,
+                "summary": item.summary,
+                "source": item.source,
+                "sentiment": item.sentiment,
+                "published": item.published,
+            }
+            for item in news_state.items
+        ],
     }
 
 

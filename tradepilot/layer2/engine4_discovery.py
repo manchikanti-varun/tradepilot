@@ -205,24 +205,11 @@ async def score_stock(
         volume_ratio = recent_vol / avg_vol if avg_vol > 0 else 1.0
         volume_score = min(100, max(0, 50 + (volume_ratio - 1.0) * 50))
 
-        # --- NEWS (25%) — KNOWN PHASE-0 SIMPLIFICATION ---
-        # IMPORTANT: News sentiment is hardcoded to 55/100 (neutral) in Phase 0.
-        # This means the 25% news weight effectively becomes a constant additive
-        # of 13.75 points (55 × 0.25) to every stock's composite score.
-        #
-        # IMPACT ON THRESHOLDS: With News pinned at 55, a stock needs:
-        #   Technical=75, Volume=75, Sector=85, Momentum=75 → composite = 73.75 (Grade B, not A)
-        #   Technical=85, Volume=80, Sector=85, Momentum=80 → composite = 77.25 (Grade A)
-        # This is slightly MORE restrictive than if news occasionally scored 70-80
-        # for positive-sentiment stocks, meaning the neutral default is conservative
-        # (fewer A/A+ stocks, not more) compared to what a working news engine would
-        # produce on bullish-sentiment days. On negative-news days, the opposite would
-        # be true — a working Engine 2/3 would push some stocks BELOW the threshold
-        # that currently scrape through. Net: neutral default is a wash on average,
-        # mildly conservative on bull days, mildly permissive on bear days.
-        #
-        # Phase 1 replaces this with real NLP sentiment from MoneycontrolRSS + ET + BS.
-        news_score = 55.0  # HARDCODED — see comment above
+        # --- NEWS (25%) — Real sentiment from Engine 27 ---
+        # Uses live RSS feeds (Moneycontrol, ET) to compute market sentiment.
+        # Falls back to 55 (neutral) if news fetch hasn't happened yet.
+        from tradepilot.layer2.engine27_news import get_news_sentiment_score
+        news_score = get_news_sentiment_score()
 
         # --- SECTOR (15%) ---
         if sector in top_sectors:

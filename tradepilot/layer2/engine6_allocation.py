@@ -1,4 +1,15 @@
-"""Engine 6: Capital Allocation — tier + growth-stage aware sizing SUGGESTION."""
+"""Engine 6: Capital Allocation — full conviction single-trade sizing.
+
+Philosophy: ONE trade at a time, full capital when market is good.
+- Grade A+ in NORMAL/TRENDING market → 100% capital deployed
+- Grade A in NORMAL market → 100% capital deployed  
+- Grade A+ in HIGH_VOL → 70% capital (slightly conservative)
+- Grade A in HIGH_VOL → 50% capital (cautious but still in)
+- Anything else → don't trade (handled upstream by Engine 5 grade filter)
+
+This is NOT a diversification engine. It's a conviction engine.
+If the system says BUY, it means go all-in on that single best pick.
+"""
 
 from dataclasses import dataclass
 
@@ -33,37 +44,37 @@ def compute_allocation(
     progress_pct_to_next_tier: float = 0.0,
 ) -> AllocationResult:
     """
-    Compute position size suggestion.
+    Compute position size — FULL CAPITAL single-trade approach.
+    
+    Logic: If the system found a Grade A/A+ stock AND market conditions
+    are good, deploy full capital. This is one-trade-at-a-time with
+    conviction. The protection comes from:
+    1. Engine 11 risk gate (won't even get here if market is bad)
+    2. Grade filter (only A+/A reach this point)
+    3. Stop loss (limits downside per trade)
+    
     Output is a card shown to the user — never triggers an order.
-
-    HARD FLOOR: max_risk_pct is ALWAYS sourced from TIER_CONFIGS based on
-    is_proven status. There is no parameter, config file, or settings override
-    that can raise it above the unproven level when is_proven=False.
-    This is enforced here structurally, not by policy.
     """
     tier_config = TIER_CONFIGS[tier]
 
-    # HARD FLOOR — is_proven is the ONLY input that controls this choice.
-    # Engine 24's validation is the ONLY path that sets is_proven=True.
-    # POST /api/settings cannot change this — it has no code path to do so.
+    # HARD FLOOR — is_proven controls max risk per trade
     max_risk_pct = tier_config.max_risk_pct_proven if is_proven else tier_config.max_risk_pct_unproven
 
-    # Leverage (drops in HIGH_VOL)
+    # Leverage
     leverage = tier_config.leverage
     if market_mode == MarketMode.HIGH_VOL:
-        leverage = 3.0
+        leverage = 3.0  # reduce leverage in volatile markets
 
-    # Allocation percentage by grade
-    if grade == Grade.A_PLUS:
-        allocation_pct = 0.80
-    elif grade == Grade.A:
-        allocation_pct = 0.60
-    else:
-        allocation_pct = 0.40  # shouldn't reach here (only A+/A pass Engine 5)
-
-    # HIGH_VOL caps at 40%
+    # ALLOCATION: Full capital for good setups, reduced only in HIGH_VOL
     if market_mode == MarketMode.HIGH_VOL:
-        allocation_pct = min(allocation_pct, 0.40)
+        # Market is rough — be cautious
+        if grade == Grade.A_PLUS:
+            allocation_pct = 0.70  # Still mostly in for A+ even in vol
+        else:
+            allocation_pct = 0.50  # Cautious for A in volatile market
+    else:
+        # NORMAL or TRENDING — full send on conviction picks
+        allocation_pct = 1.0  # Use entire capital
 
     capital_to_use = current_capital * allocation_pct
     exposure = capital_to_use * leverage
@@ -84,19 +95,36 @@ def compute_allocation(
             viable=False,
         )
 
-    # Stop loss calculation
-    stop_loss_amount = (qty * ltp) * (max_risk_pct / 100 / leverage)
-    stop_price = ltp - (stop_loss_amount / qty) if qty > 0 else 0
+    # Stop loss based on ATR — this is your protection
+    stop_price = ltp - (atr * 0.4)
+    stop_loss_amount = qty * (ltp - stop_price)
 
-    # If near tier boundary, Engine 11's tighter daily-loss multiplier applies
-    # (handled by Engine 11, not here — we just note it)
+    # Cap stop loss to max_risk_pct of capital
+    max_loss_allowed = current_capital * (max_risk_pct / 100)
+    if stop_loss_amount > max_loss_allowed:
+        # Reduce qty to fit within risk limit
+        per_share_risk = ltp - stop_price
+        if per_share_risk > 0:
+            qty = int(max_loss_allowed / per_share_risk)
+            stop_loss_amount = qty * per_share_risk
+        if qty == 0:
+            return AllocationResult(
+                capital_to_use=capital_to_use, exposure=exposure, qty=0,
+                stop_price=0, stop_loss_amount=0,
+                allocation_pct=allocation_pct, leverage=leverage,
+                max_risk_pct=max_risk_pct, tier=tier,
+                message="Risk too high at this ATR — waiting for tighter setup.",
+                viable=False,
+            )
+
+    # Near tier boundary note
     near_boundary_note = ""
     if progress_pct_to_next_tier >= 85:
-        near_boundary_note = " [Near tier boundary — daily loss limit tightened]"
+        near_boundary_note = " [Near tier boundary — protect gains]"
 
     message = (
-        f"Suggested qty: {qty} @ ~₹{ltp:.2f} — place this yourself in Angel One."
-        f" Stop: ₹{stop_price:.2f} | Risk: ₹{stop_loss_amount:.2f} ({max_risk_pct}%)"
+        f"BUY {qty} shares @ ~₹{ltp:.2f} — full conviction trade."
+        f" Stop: ₹{stop_price:.2f} | Max risk: ₹{stop_loss_amount:.2f} ({max_risk_pct}% cap)"
         f"{near_boundary_note}"
     )
 

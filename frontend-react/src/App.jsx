@@ -24,6 +24,7 @@ export default function App() {
   const [signals, setSignals] = useState(null)
   const [perf, setPerf] = useState(null)
   const [brief, setBrief] = useState(null)
+  const [news, setNews] = useState(null)
   const [rejections, setRejections] = useState(null)
   const [toast, setToast] = useState(null)
   const [clock, setClock] = useState(formatClock())
@@ -47,9 +48,12 @@ export default function App() {
   useEffect(() => {
     fetchAll()
     api.brief().then(setBrief).catch(() => {})
+    api.news().then(setNews).catch(() => {})
     const t1 = setInterval(fetchAll, 30000)
     const t2 = setInterval(() => setClock(formatClock()), 1000)
-    return () => { clearInterval(t1); clearInterval(t2) }
+    // Refresh news every 5 min
+    const t3 = setInterval(() => api.news().then(setNews).catch(() => {}), 300000)
+    return () => { clearInterval(t1); clearInterval(t2); clearInterval(t3) }
   }, [fetchAll])
 
   const handleIntake = async (text) => {
@@ -76,7 +80,7 @@ export default function App() {
     } catch { showToast('Network error', 'error') }
   }
 
-  const ctx = { state, growth, position, signals, perf, brief, rejections, clock, handleIntake, handleCapitalUpdate, fetchAll }
+  const ctx = { state, growth, position, signals, perf, brief, news, rejections, clock, handleIntake, handleCapitalUpdate, fetchAll }
 
   return (
     <div className="flex flex-col h-screen bg-dark-900">

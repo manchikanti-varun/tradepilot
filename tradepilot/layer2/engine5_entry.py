@@ -61,18 +61,18 @@ async def check_entry_conditions(
     if event_risk == "HIGH":
         return EntryCheckResult(False, "HIGH event risk — A+ only in Phase 1", symbol, ltp, score)
 
-    # RSI check: 42-70
-    if not (42 <= score.rsi <= 70):
+    # RSI check: 30-75 (avoid extreme overbought/oversold)
+    if not (30 <= score.rsi <= 75):
         return EntryCheckResult(
-            False, f"RSI {score.rsi:.1f} outside 42-70 range", symbol, ltp, score
+            False, f"RSI {score.rsi:.1f} outside 30-75 range", symbol, ltp, score
         )
 
-    # VWAP proximity: within 0.3%
+    # VWAP proximity: within 1.0% (generous — you decide the exact timing)
     if score.vwap > 0:
         vwap_dist_pct = abs(ltp - score.vwap) / score.vwap * 100
-        if vwap_dist_pct > 0.3:
+        if vwap_dist_pct > 1.0:
             return EntryCheckResult(
-                False, f"LTP {vwap_dist_pct:.2f}% from VWAP (max 0.3%)", symbol, ltp, score
+                False, f"LTP {vwap_dist_pct:.2f}% from VWAP (max 1.0%)", symbol, ltp, score
             )
 
     # Market depth check
@@ -84,10 +84,10 @@ async def check_entry_conditions(
             False, f"Bid pressure weak ({bid_qty} < {ask_qty}*0.85)", symbol, ltp, score
         )
 
-    # Volume check (already in score — volume_ratio > 1.0 means above average)
-    if score.volume_ratio < 1.0:
+    # Volume check — at least 70% of average (still liquid enough)
+    if score.volume_ratio < 0.7:
         return EntryCheckResult(
-            False, f"Volume below average (ratio {score.volume_ratio:.2f})", symbol, ltp, score
+            False, f"Volume too thin (ratio {score.volume_ratio:.2f}, need 0.7+)", symbol, ltp, score
         )
 
     # All passed
