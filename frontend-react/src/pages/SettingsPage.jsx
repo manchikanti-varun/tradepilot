@@ -155,7 +155,7 @@ export default function SettingsPage({ growth, onCapitalUpdate }) {
 
       {/* About */}
       <div className="bg-dark-700 border border-dark-600 rounded-xl p-4 text-center">
-        <p className="text-sm font-bold text-white">TradePilot AI v3.4</p>
+        <p className="text-sm font-bold text-white">TradePilot AI</p>
         <p className="text-[11px] text-gray-500 mt-1">Manual execution co-pilot • Angel One SmartAPI</p>
         <p className="text-[10px] text-gray-600 mt-0.5">Real-time data • Zero auto-trading</p>
       </div>

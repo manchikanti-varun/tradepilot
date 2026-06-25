@@ -36,7 +36,7 @@ logger = logging.getLogger(__name__)
 async def lifespan(app: FastAPI):
     """Modern lifespan handler (replaces deprecated on_event)."""
     setup_logging("INFO")
-    logger.info("TradePilot v3.4 starting up...")
+    logger.info("TradePilot AI starting up...")
     await initialize()
     start_scheduler()
     logger.info("Startup complete — scheduler running")
@@ -46,9 +46,9 @@ async def lifespan(app: FastAPI):
 
 
 app = FastAPI(
-    title="TradePilot AI v3.4",
+    title="TradePilot AI",
     description="AI Trading Co-Pilot — Manual Execution, Zero Broker Integration",
-    version="3.4.0",
+    version="1.0.0",
     lifespan=lifespan,
 )
 
@@ -112,7 +112,7 @@ async def health():
     provider_name = type(state.market_data).__name__
     return {
         "status": "healthy",
-        "version": "3.4.0",
+        "version": "1.0.0",
         "data_source": provider_name,
         "last_scan_time": state.last_scan_time.isoformat() if state.last_scan_time else None,
         "active_trade": state.active_trade.ticker if state.active_trade else None,
@@ -783,13 +783,14 @@ async def get_chart_data(symbol: str, interval: str = "5m"):
 
 @app.get("/api/stock/{symbol}/plan")
 async def get_stock_trading_plan(symbol: str):
-    """Generate a complete trading plan for a stock — entry, SL, target, conditions."""
+    """Generate a complete trading plan for a stock — AI-powered dual analysis."""
     from datetime import timedelta
     from tradepilot.layer2.engine4_discovery import (
         compute_rsi, compute_vwap, compute_macd, compute_ema, compute_atr, score_stock
     )
     from tradepilot.layer2.engine8_charges import calculate_angel_charges
     from tradepilot.layer2.engine21_growth import get_growth_state
+    from tradepilot.layer2.engine_ai import dual_ai_analysis
 
     state = get_state()
     now = datetime.now()
@@ -821,61 +822,59 @@ async def get_stock_trading_plan(symbol: str):
     # Key levels
     day_high = float(highs.iloc[-78:].max()) if len(highs) >= 78 else float(highs.max())
     day_low = float(lows.iloc[-78:].min()) if len(lows) >= 78 else float(lows.min())
-    range_high = float(highs.max())
-    range_low = float(lows.min())
-
-    # Support/Resistance (simple: recent swing high/low)
-    resistance = float(highs.iloc[-30:].max()) if len(highs) >= 30 else day_high
     support = float(lows.iloc[-30:].min()) if len(lows) >= 30 else day_low
+    resistance = float(highs.iloc[-30:].max()) if len(highs) >= 30 else day_high
 
-    # Daily ATR for proper target/stop calculation
-    # 5-min ATR is too small for intraday targets. Use day range instead.
-    daily_range = day_high - day_low
-    if daily_range < ltp * 0.005:  # If range is less than 0.5%, use % based
-        daily_range = ltp * 0.01  # Assume 1% daily range minimum
+    # Daily ATR
+    daily_candles = await state.market_data.get_candles(symbol, "1d", now - timedelta(days=20), now)
+    daily_atr = compute_atr(daily_candles) if not daily_candles.empty and len(daily_candles) >= 5 else max(day_high - day_low, ltp * 0.01)
 
-    # Also try to get daily candles for better ATR
-    try:
-        daily_candles = await state.market_data.get_candles(symbol, "1d", now - timedelta(days=20), now)
-        if not daily_candles.empty and len(daily_candles) >= 5:
-            daily_atr = compute_atr(daily_candles)
-            if daily_atr > 0:
-                daily_range = daily_atr
-    except Exception:
-        pass
+    # Build data for AI
+    stock_data = {
+        "ltp": round(ltp, 2),
+        "day_high": round(day_high, 2),
+        "day_low": round(day_low, 2),
+        "rsi": round(rsi, 1),
+        "ema9": round(ema9, 2),
+        "ema21": round(ema21, 2),
+        "macd": round(macd_hist, 4),
+        "vwap": round(vwap, 2),
+        "volume_ratio": round(volume_ratio, 2),
+        "atr": round(daily_atr, 2),
+        "support": round(support, 2),
+        "resistance": round(resistance, 2),
+    }
 
-    # Entry zone (near VWAP or support with room to move up)
-    entry_low = round(max(vwap - daily_range * 0.05, support + daily_range * 0.1), 2)
-    entry_high = round(min(vwap + daily_range * 0.05, ltp + daily_range * 0.05), 2)
+    # Run dual AI analysis
+    ai_result = await dual_ai_analysis(symbol, stock_data)
 
-    # Stop loss: below support or 30% of daily range below entry
-    stop_loss = round(max(support - daily_range * 0.1, ltp - daily_range * 0.3), 2)
-
-    # Targets: based on daily ATR (realistic intraday moves)
-    target_1 = round(ltp + daily_range * 0.3, 2)   # Conservative: 30% of daily range
-    target_2 = round(ltp + daily_range * 0.5, 2)   # Moderate: 50% of daily range
-    target_3 = round(ltp + daily_range * 0.8, 2)   # Aggressive: 80% of daily range
-
-    # Risk-reward
-    risk_per_share = max(ltp - stop_loss, 1.0)  # minimum ₹1 risk
-    reward_1 = target_1 - ltp
-    rr_ratio = round(reward_1 / risk_per_share, 2) if risk_per_share > 0 else 0
-
-    # Capital and qty
+    # Get capital for position sizing
     growth = await get_growth_state()
     capital = growth.current_capital
     leverage = 5.0
+
+    # Use AI-suggested levels if available, else compute from data
+    entry_price = ai_result.get("entry_price") or ltp
+    stop_loss = ai_result.get("stop_loss") or round(ltp - daily_atr * 0.3, 2)
+    target_1 = ai_result.get("target_1") or round(ltp + daily_atr * 0.5, 2)
+    target_2 = ai_result.get("target_2") or round(ltp + daily_atr * 0.8, 2)
+
+    # Position sizing
+    risk_per_share = max(ltp - stop_loss, 0.5)
     max_qty = int((capital * leverage) // ltp)
-    # Risk-based qty: limit loss to 2-3% of capital
-    max_risk = capital * 0.03  # 3% max loss per trade
-    risk_qty = int(max_risk / risk_per_share) if risk_per_share > 0 else max_qty
+    max_loss_allowed = capital * 0.02
+    risk_qty = int(max_loss_allowed / risk_per_share) if risk_per_share > 0 else max_qty
     suggested_qty = min(max_qty, risk_qty)
 
-    # Charges estimate
-    charges, _ = calculate_angel_charges(suggested_qty, ltp, target_1)
+    # Charges
+    charges, charge_breakdown = calculate_angel_charges(suggested_qty, ltp, target_1)
     net_profit_t1 = suggested_qty * (target_1 - ltp) - charges
 
-    # Trend assessment
+    # Risk reward
+    reward_1 = target_1 - ltp
+    rr_ratio = ai_result.get("risk_reward") or (round(reward_1 / risk_per_share, 2) if risk_per_share > 0 else 0)
+
+    # Trend
     if ema9 > ema21 and macd_hist > 0 and ltp > vwap:
         trend = "BULLISH"
         trend_desc = "Stock is in an uptrend — EMA9 above EMA21, MACD positive, price above VWAP."
@@ -886,33 +885,145 @@ async def get_stock_trading_plan(symbol: str):
         trend = "SIDEWAYS"
         trend_desc = "Stock is moving sideways — wait for a clear breakout above resistance or rejection at support."
 
-    # Entry conditions (when to buy)
-    entry_conditions = []
-    if ltp < vwap:
-        entry_conditions.append(f"Wait for price to break above VWAP (₹{vwap:.1f}) with volume")
-    if ltp > resistance - atr * 0.1:
-        entry_conditions.append(f"Price near resistance ₹{resistance:.1f} — buy only on breakout above it")
-    if volume_ratio < 1.0:
-        entry_conditions.append("Volume is below average — wait for volume spike before entering")
-    if rsi > 70:
-        entry_conditions.append(f"RSI is {rsi:.0f} (overbought) — risky to enter now, may pull back")
-    if rsi < 35:
-        entry_conditions.append(f"RSI is {rsi:.0f} (oversold) — could bounce, but confirm with price action")
-    if not entry_conditions:
-        entry_conditions.append("Conditions look good for entry — check for volume confirmation")
+    # Sector
+    from tradepilot.layer1.nifty_universe import get_sector_map
+    sector_map = get_sector_map()
+    sector = sector_map.get(symbol, "Unknown")
 
-    # Avoid conditions (when NOT to buy)
-    avoid_conditions = []
-    if rsi > 75:
-        avoid_conditions.append("Don't chase — RSI shows overbought, wait for a pullback")
-    if ltp > day_high:
-        avoid_conditions.append("Stock already made day's high — late entry, higher risk")
-    if volume_ratio > 3.0:
-        avoid_conditions.append("Abnormal volume spike — could be a trap, wait for next candle")
-    if atr > ltp * 0.03:
-        avoid_conditions.append("High volatility (ATR > 3% of price) — keep position size small")
-    if not avoid_conditions:
-        avoid_conditions.append("No major red flags — proceed with normal position size")
+    return {
+        "symbol": symbol,
+        "sector": sector,
+        "ltp": ltp,
+        "trend": trend,
+        "trend_description": trend_desc,
+        "ai_analysis": {
+            "verdict": ai_result["verdict"],
+            "confidence": ai_result["confidence"],
+            "gemini": ai_result.get("gemini"),
+            "groq": ai_result.get("groq"),
+            "reasoning": ai_result.get("reasoning", []),
+        },
+        "entry_price": round(entry_price, 2),
+        "stop_loss": round(stop_loss, 2),
+        "targets": [
+            {"level": 1, "price": round(target_1, 2), "label": "Target 1"},
+            {"level": 2, "price": round(target_2, 2), "label": "Target 2"},
+        ],
+        "risk_reward": rr_ratio,
+        "suggested_qty": suggested_qty,
+        "capital_required": round(suggested_qty * ltp / leverage, 2),
+        "estimated_charges": round(charges, 2),
+        "charges_breakdown": {
+            "brokerage": charge_breakdown.brokerage,
+            "stt": charge_breakdown.stt,
+            "exchange_txn": charge_breakdown.exchange_txn,
+            "gst": charge_breakdown.gst,
+            "stamp_duty": charge_breakdown.stamp_duty,
+            "sebi": charge_breakdown.sebi,
+            "total": charge_breakdown.total,
+        },
+        "net_profit_target1": round(net_profit_t1, 2),
+        "risk_per_share": round(risk_per_share, 2),
+        "indicators": stock_data,
+    }
+
+
+# Old stock plan code removed — AI analysis above handles everything
+
+
+@app.get("/api/stats/time-performance")
+async def get_time_performance():
+    """P&L by hour of entry — find your best trading times."""
+    from tradepilot.database import get_db
+    async with get_db() as db:
+        rows = await db.execute(
+            """SELECT entry_time, net_pnl, was_profitable
+            FROM trades WHERE status = 'CLOSED' AND entry_time IS NOT NULL"""
+        )
+        hourly = {}
+        async for row in rows:
+            try:
+                hour = int(row["entry_time"][11:13])
+                if hour not in hourly:
+                    hourly[hour] = {"trades": 0, "wins": 0, "pnl": 0}
+                hourly[hour]["trades"] += 1
+                hourly[hour]["pnl"] += row["net_pnl"] or 0
+                if row["was_profitable"]:
+                    hourly[hour]["wins"] += 1
+            except (ValueError, IndexError, TypeError):
+                continue
+    result = []
+    for h in range(9, 16):
+        data = hourly.get(h, {"trades": 0, "wins": 0, "pnl": 0})
+        wr = (data["wins"] / data["trades"] * 100) if data["trades"] > 0 else 0
+        result.append({"hour": h, "label": f"{h}:00", "trades": data["trades"],
+                       "wins": data["wins"], "pnl": round(data["pnl"], 2), "win_rate": round(wr, 1)})
+    return {"hours": result}
+
+
+# ═══════════════════════════════════════════════════════════════
+# FEATURES 1-24: FULL TRADING TERMINAL ENDPOINTS
+# ═══════════════════════════════════════════════════════════════
+
+@app.get("/api/position/live-pnl")
+async def get_live_pnl():
+    """Feature 1: Live P&L — real-time profit/loss for active position."""
+    state = get_state()
+    trade = state.active_trade
+    if not trade:
+        return {"active": False}
+    try:
+        ltp = await state.market_data.get_ltp(trade.ticker)
+    except Exception:
+        ltp = trade.entry_price
+    from tradepilot.layer2.engine8_charges import calculate_angel_charges
+    gross = trade.qty * (ltp - trade.entry_price)
+    charges, breakdown = calculate_angel_charges(trade.qty, trade.entry_price, ltp)
+    net = gross - charges
+    pct = (net / trade.capital_used * 100) if trade.capital_used > 0 else 0
+    return {
+        "active": True, "ticker": trade.ticker, "ltp": ltp,
+        "entry_price": trade.entry_price, "qty": trade.qty,
+        "gross_pnl": round(gross, 2), "charges": round(charges, 2),
+        "net_pnl": round(net, 2), "pnl_pct": round(pct, 2),
+        "if_exit_now": round(net, 2),
+    }
+
+
+@app.get("/api/market/premarket")
+async def get_premarket():
+    """Feature 2: Pre-market scanner."""
+    state = get_state()
+    scores = state.watchlist_scores
+    if not scores:
+        return {"gap_ups": [], "gap_downs": [], "status": "no_data"}
+    gaps = []
+    for s in scores[:30]:
+        try:
+            candles = await state.market_data.get_candles(s.symbol, "1d", datetime.now() - timedelta(days=3), datetime.now())
+            if candles.empty or len(candles) < 2:
+                continue
+            prev_close = float(candles["close"].iloc[-2])
+            curr = s.ltp
+            gap_pct = ((curr - prev_close) / prev_close * 100) if prev_close > 0 else 0
+            gaps.append({"symbol": s.symbol, "sector": s.sector, "prev_close": round(prev_close, 1),
+                         "current": round(curr, 1), "gap_pct": round(gap_pct, 2)})
+        except Exception:
+            continue
+    gap_ups = sorted([g for g in gaps if g["gap_pct"] > 0.3], key=lambda x: x["gap_pct"], reverse=True)[:5]
+    gap_downs = sorted([g for g in gaps if g["gap_pct"] < -0.3], key=lambda x: x["gap_pct"])[:5]
+    return {"gap_ups": gap_ups, "gap_downs": gap_downs}
+
+
+class PriceAlertRequest(BaseModel):
+    symbol: str = Field(..., min_length=1, max_length=20)
+    target_price: float = Field(..., gt=0)
+    direction: str = Field(..., pattern="^(ABOVE|BELOW)$")
+
+
+@app.post("/api/alerts/price")
+async def create_price_alert(request: PriceAlertRequest):
+    """Feature 3: Create price alert."""
 
     # Score the stock
     from tradepilot.layer1.nifty_universe import get_sector_map
@@ -1500,99 +1611,158 @@ async def get_eod_summary():
 
 
 @app.get("/api/screener")
-async def get_screener():
-    """Advanced screener — bullish/bearish stocks across timeframes, independent of capital."""
-    from tradepilot.layer2.engine4_discovery import compute_ema, compute_rsi, compute_macd, compute_atr, compute_vwap
+async def get_screener(timeframe: str = "1h"):
+    """KST-based multi-timeframe screener.
+    
+    Logic:
+    - Hourly: KST crossover detection (the TRIGGER)
+    - Daily: KST vs Signal trend (context)
+    - Weekly: KST vs Signal trend (context)
+    - Strength = alignment across all three
+    """
+    from tradepilot.layer2.engine4_discovery import compute_ema, compute_rsi
     state = get_state()
     scores = state.watchlist_scores
     if not scores:
-        return {"bullish": [], "bearish": [], "breakout": [], "oversold": [], "high_volume": []}
+        return {"bullish": [], "bearish": [], "total_scanned": 0}
 
     now = datetime.now()
     bullish = []
     bearish = []
-    breakout = []
-    oversold = []
-    high_volume = []
 
-    for s in scores[:50]:
+    for s in scores[:60]:
         try:
-            candles = await state.market_data.get_candles(s.symbol, "5m", now - timedelta(days=5), now)
-            if candles.empty or len(candles) < 30:
+            # Get candles for each timeframe
+            hourly = await state.market_data.get_candles(s.symbol, "1h", now - timedelta(days=10), now)
+            daily = await state.market_data.get_candles(s.symbol, "1d", now - timedelta(days=60), now)
+
+            if hourly.empty or len(hourly) < 20 or daily.empty or len(daily) < 20:
                 continue
 
-            closes = candles["close"]
-            volumes = candles["volume"]
-            highs = candles["high"]
+            # Compute KST for each timeframe
+            hourly_kst, hourly_signal = _compute_kst(hourly["close"])
+            daily_kst, daily_signal = _compute_kst(daily["close"])
 
-            rsi = compute_rsi(closes)
-            ema9 = compute_ema(closes, 9)
-            ema21 = compute_ema(closes, 21)
-            _, _, macd_hist = compute_macd(closes)
-            vwap = compute_vwap(candles)
-            atr = compute_atr(candles)
-            ltp = float(closes.iloc[-1])
+            # Weekly: use last 5 daily candles as proxy
+            weekly_closes = daily["close"].iloc[::5]  # sample every 5 days
+            if len(weekly_closes) >= 15:
+                weekly_kst, weekly_signal = _compute_kst(weekly_closes)
+                weekly_trend = "BULLISH" if float(weekly_kst.iloc[-1]) > float(weekly_signal.iloc[-1]) else "BEARISH"
+            else:
+                weekly_trend = "NEUTRAL"
 
-            # Volume ratio
-            recent_vol = float(volumes.iloc[-5:].mean()) if len(volumes) >= 5 else 0
-            avg_vol = float(volumes.iloc[-20:].mean()) if len(volumes) >= 20 else recent_vol
-            vol_ratio = recent_vol / avg_vol if avg_vol > 0 else 1.0
+            # Hourly crossover detection (last 2 bars)
+            if len(hourly_kst) < 2:
+                continue
 
-            # Day high
-            day_high = float(highs.iloc[-78:].max()) if len(highs) >= 78 else float(highs.max())
+            curr_kst = float(hourly_kst.iloc[-1])
+            prev_kst = float(hourly_kst.iloc[-2])
+            curr_sig = float(hourly_signal.iloc[-1])
+            prev_sig = float(hourly_signal.iloc[-2])
+
+            hourly_crossover = None
+            if prev_kst <= prev_sig and curr_kst > curr_sig:
+                hourly_crossover = "BULLISH"
+            elif prev_kst >= prev_sig and curr_kst < curr_sig:
+                hourly_crossover = "BEARISH"
+
+            if hourly_crossover is None:
+                continue  # No crossover = no signal
+
+            # Daily trend
+            daily_trend = "BULLISH" if float(daily_kst.iloc[-1]) > float(daily_signal.iloc[-1]) else "BEARISH"
+
+            # Determine strength based on alignment
+            if hourly_crossover == "BULLISH":
+                if daily_trend == "BULLISH" and weekly_trend == "BULLISH":
+                    strength = "STRONG"
+                elif daily_trend == "BULLISH" or weekly_trend == "BULLISH":
+                    strength = "MEDIUM"
+                else:
+                    strength = "MILD"
+            else:  # BEARISH crossover
+                if daily_trend == "BEARISH" and weekly_trend == "BEARISH":
+                    strength = "STRONG"
+                elif daily_trend == "BEARISH" or weekly_trend == "BEARISH":
+                    strength = "MEDIUM"
+                else:
+                    strength = "MILD"
+
+            ltp = float(hourly["close"].iloc[-1])
+            rsi = compute_rsi(hourly["close"])
 
             stock_data = {
-                "symbol": s.symbol, "sector": s.sector, "ltp": round(ltp, 2),
-                "rsi": round(rsi, 1), "ema9": round(ema9, 2), "ema21": round(ema21, 2),
-                "macd": "Positive" if macd_hist > 0 else "Negative",
-                "vwap_relation": "Above" if ltp > vwap else "Below",
-                "volume_ratio": round(vol_ratio, 1),
-                "score": s.composite, "grade": s.grade.value,
+                "symbol": s.symbol,
+                "sector": s.sector,
+                "ltp": round(ltp, 2),
+                "rsi": round(rsi, 1),
+                "strength": strength,
+                "hourly": hourly_crossover,
+                "daily": daily_trend,
+                "weekly": weekly_trend,
+                "score": s.composite,
+                "grade": s.grade.value,
+                "reason": _build_signal_reason(hourly_crossover, daily_trend, weekly_trend, strength),
             }
 
-            # Categorize
-            # Bullish: EMA9 > EMA21 + MACD positive + above VWAP
-            if ema9 > ema21 and macd_hist > 0 and ltp > vwap:
-                stock_data["reason"] = "Uptrend: EMA crossover + MACD positive + above VWAP"
+            if hourly_crossover == "BULLISH":
                 bullish.append(stock_data)
-
-            # Bearish: EMA9 < EMA21 + MACD negative + below VWAP
-            elif ema9 < ema21 and macd_hist < 0 and ltp < vwap:
-                stock_data["reason"] = "Downtrend: EMA bearish + MACD negative + below VWAP"
+            else:
                 bearish.append(stock_data)
-
-            # Breakout: Price near day high + volume spike
-            if ltp > day_high * 0.995 and vol_ratio > 1.5:
-                stock_data["reason"] = f"Breaking day high with {vol_ratio:.1f}x volume"
-                breakout.append(stock_data)
-
-            # Oversold bounce candidates: RSI < 35 + price near support
-            if rsi < 35:
-                stock_data["reason"] = f"RSI at {rsi:.0f} — heavily oversold, bounce possible"
-                oversold.append(stock_data)
-
-            # High volume movers
-            if vol_ratio > 2.0:
-                stock_data["reason"] = f"Volume {vol_ratio:.1f}x above average — unusual activity"
-                high_volume.append(stock_data)
 
         except Exception:
             continue
 
-    # Sort each category
-    bullish.sort(key=lambda x: x["score"], reverse=True)
-    bearish.sort(key=lambda x: x["score"])
-    breakout.sort(key=lambda x: x["volume_ratio"], reverse=True)
+    # Sort: Strong first, then Medium, then Mild
+    strength_order = {"STRONG": 0, "MEDIUM": 1, "MILD": 2}
+    bullish.sort(key=lambda x: strength_order.get(x["strength"], 3))
+    bearish.sort(key=lambda x: strength_order.get(x["strength"], 3))
 
     return {
-        "bullish": bullish[:10],
-        "bearish": bearish[:10],
-        "breakout": breakout[:5],
-        "oversold": oversold[:5],
-        "high_volume": high_volume[:5],
+        "bullish": bullish[:15],
+        "bearish": bearish[:15],
         "total_scanned": len(scores),
         "last_scan": state.last_scan_time.isoformat() if state.last_scan_time else None,
     }
+
+
+def _compute_kst(closes) -> tuple:
+    """Compute KST (Know Sure Thing) indicator and its signal line.
+    
+    KST = weighted sum of 4 rate-of-change values smoothed by SMA.
+    Signal = 9-period SMA of KST.
+    """
+    import pandas as pd
+    closes = pd.Series(closes.values) if hasattr(closes, 'values') else pd.Series(closes)
+
+    # ROC periods and SMA smoothing periods
+    roc_periods = [10, 15, 20, 30]
+    sma_periods = [10, 10, 10, 15]
+    weights = [1, 2, 3, 4]
+
+    kst = pd.Series(0.0, index=closes.index)
+    for roc_p, sma_p, w in zip(roc_periods, sma_periods, weights):
+        if len(closes) <= roc_p:
+            continue
+        roc = ((closes - closes.shift(roc_p)) / closes.shift(roc_p)) * 100
+        smoothed = roc.rolling(window=min(sma_p, len(closes) - roc_p)).mean()
+        kst = kst + (smoothed * w)
+
+    signal = kst.rolling(window=9).mean()
+    return kst, signal
+
+
+def _build_signal_reason(hourly: str, daily: str, weekly: str, strength: str) -> str:
+    """Build plain English reason for the signal."""
+    direction = "Bullish" if hourly == "BULLISH" else "Bearish"
+
+    if strength == "STRONG":
+        return f"{direction} crossover on hourly. Daily and weekly both confirm — all timeframes aligned."
+    elif strength == "MEDIUM":
+        agreeing = "Daily" if (daily == hourly) else "Weekly"
+        return f"{direction} crossover on hourly. {agreeing} trend agrees — moderate confidence."
+    else:
+        return f"{direction} crossover on hourly, but daily and weekly disagree — proceed with caution."
 
 
 @app.get("/api/market/52week")

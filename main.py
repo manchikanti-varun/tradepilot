@@ -1,4 +1,4 @@
-"""TradePilot AI v3.4 — Main entry point.
+"""TradePilot AI — Main entry point.
 
 Run locally: python main.py
 Deploy: Railway uses Procfile → uvicorn tradepilot.api:app --host 0.0.0.0 --port $PORT

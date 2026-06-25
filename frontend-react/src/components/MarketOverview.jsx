@@ -1,6 +1,7 @@
 import { useState, useEffect } from 'react'
 import { Grid3X3, TrendingUp, TrendingDown } from 'lucide-react'
 import { api } from '../api'
+import StockDetailModal from './StockDetailModal'
 
 const MOOD_COLORS = {
   POSITIVE: 'bg-green-500/15 border-green-500/30 text-green-400',
@@ -11,7 +12,8 @@ const MOOD_COLORS = {
 export default function MarketOverview() {
   const [sectors, setSectors] = useState(null)
   const [movers, setMovers] = useState(null)
-  const [tab, setTab] = useState('sectors') // 'sectors' | 'gainers' | 'losers'
+  const [tab, setTab] = useState('sectors')
+  const [selectedStock, setSelectedStock] = useState(null)
 
   useEffect(() => {
     api.sectors().then(setSectors).catch(() => {})
@@ -19,12 +21,12 @@ export default function MarketOverview() {
     const interval = setInterval(() => {
       api.sectors().then(setSectors).catch(() => {})
       api.movers().then(setMovers).catch(() => {})
-    }, 60000) // refresh every minute
+    }, 60000)
     return () => clearInterval(interval)
   }, [])
 
   return (
-    <div className="bg-dark-700 border border-dark-600 rounded-2xl p-4 mb-3">
+    <div className="bg-dark-700 border border-dark-600 rounded-2xl p-4">
       {/* Tabs */}
       <div className="flex items-center gap-1 mb-3">
         <TabBtn active={tab === 'sectors'} onClick={() => setTab('sectors')} icon={Grid3X3} label="Sectors" />
@@ -54,7 +56,8 @@ export default function MarketOverview() {
       {tab === 'gainers' && movers?.gainers && (
         <div className="space-y-1.5">
           {movers.gainers.map((s, i) => (
-            <div key={s.symbol} className="flex items-center justify-between bg-dark-900 rounded-lg px-3 py-2">
+            <button key={s.symbol} onClick={() => setSelectedStock(s.symbol)}
+              className="w-full flex items-center justify-between bg-dark-900 rounded-lg px-3 py-2 hover:bg-dark-800 transition-colors text-left">
               <div className="flex items-center gap-2">
                 <span className="text-[10px] text-gray-600 w-4">{i + 1}</span>
                 <span className="text-xs font-bold text-white">{s.symbol}</span>
@@ -64,7 +67,7 @@ export default function MarketOverview() {
                 <span className="text-xs font-mono text-white">₹{s.ltp.toFixed(1)}</span>
                 <span className="text-[10px] ml-2 text-green-400 font-bold">{s.grade}</span>
               </div>
-            </div>
+            </button>
           ))}
         </div>
       )}
@@ -73,7 +76,8 @@ export default function MarketOverview() {
       {tab === 'losers' && movers?.losers && (
         <div className="space-y-1.5">
           {movers.losers.map((s, i) => (
-            <div key={s.symbol} className="flex items-center justify-between bg-dark-900 rounded-lg px-3 py-2">
+            <button key={s.symbol} onClick={() => setSelectedStock(s.symbol)}
+              className="w-full flex items-center justify-between bg-dark-900 rounded-lg px-3 py-2 hover:bg-dark-800 transition-colors text-left">
               <div className="flex items-center gap-2">
                 <span className="text-[10px] text-gray-600 w-4">{i + 1}</span>
                 <span className="text-xs font-bold text-white">{s.symbol}</span>
@@ -83,13 +87,18 @@ export default function MarketOverview() {
                 <span className="text-xs font-mono text-white">₹{s.ltp.toFixed(1)}</span>
                 <span className="text-[10px] ml-2 text-red-400 font-bold">{s.grade}</span>
               </div>
-            </div>
+            </button>
           ))}
         </div>
       )}
 
       {!sectors?.sectors?.length && !movers?.gainers?.length && (
         <p className="text-[11px] text-gray-600 text-center py-4">Waiting for first scan...</p>
+      )}
+
+      {/* Stock Detail Modal */}
+      {selectedStock && (
+        <StockDetailModal symbol={selectedStock} onClose={() => setSelectedStock(null)} />
       )}
     </div>
   )

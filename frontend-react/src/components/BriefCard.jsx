@@ -1,7 +1,11 @@
 import { Sun, Star, Shield, TrendingUp, TrendingDown, CloudRain, Cloud, CloudSun, Target, DollarSign, AlertTriangle } from 'lucide-react'
 import { formatCurrency } from '../api'
+import { useState } from 'react'
+import StockDetailModal from './StockDetailModal'
 
 export default function BriefCard({ brief }) {
+  const [selectedStock, setSelectedStock] = useState(null)
+
   if (!brief) return null
 
   const cap = brief.capital_snapshot
@@ -111,15 +115,16 @@ export default function BriefCard({ brief }) {
         <span>Stocks: <span className="text-white font-bold">{brief.watchlist_summary?.total_candidates || 0}</span></span>
       </div>
 
-      {/* Top Stocks to Watch */}
+      {/* Top Stocks to Watch — clickable */}
       {brief.watchlist_summary?.top_3_by_score?.length > 0 && (
         <div className="flex items-center gap-1.5 mt-3 flex-wrap">
           <span className="text-[9px] text-gray-500">Top picks:</span>
           {brief.watchlist_summary.top_3_by_score.map(s => (
-            <span key={s.ticker} className="inline-flex items-center gap-1 bg-dark-900 px-2 py-0.5 rounded text-[10px]">
+            <button key={s.ticker} onClick={() => setSelectedStock(s.ticker)}
+              className="inline-flex items-center gap-1 bg-dark-900 px-2 py-1 rounded text-[10px] hover:bg-dark-800 active:scale-95 transition-all">
               <Star size={7} className="text-accent-green" />
               <span className="text-white font-medium">{s.ticker}</span>
-            </span>
+            </button>
           ))}
         </div>
       )}
@@ -130,6 +135,11 @@ export default function BriefCard({ brief }) {
           <AlertTriangle size={10} className="text-amber-400" />
           <span className="text-[9px] text-amber-300">{brief.event_calendar_today.map(e => e.event).join(' | ')}</span>
         </div>
+      )}
+
+      {/* Stock Detail Modal */}
+      {selectedStock && (
+        <StockDetailModal symbol={selectedStock} onClose={() => setSelectedStock(null)} />
       )}
     </div>
   )

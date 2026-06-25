@@ -1,6 +1,6 @@
 [project]
 name = "tradepilot"
-version = "3.4.0"
+version = "1.0.0"
 description = "AI Trading Co-Pilot — Manual Execution, Zero Broker Integration"
 requires-python = ">=3.11"
 dependencies = [

@@ -1,4 +1,4 @@
-# TradePilot AI v3.4
+# TradePilot AI
 
 **AI Trading Co-Pilot — Manual Execution, Zero Broker Integration**
 
