@@ -350,7 +350,7 @@ async def analyze_with_gemini(symbol: str, data: dict) -> Optional[dict]:
         return None
 
     prompt = _build_prompt(symbol, data)
-    url = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key={GEMINI_API_KEY}"
+    url = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key={GEMINI_API_KEY}"
 
     payload = {
         "contents": [{"parts": [{"text": prompt}]}],
@@ -359,7 +359,7 @@ async def analyze_with_gemini(symbol: str, data: dict) -> Optional[dict]:
 
     try:
         async with aiohttp.ClientSession() as session:
-            async with session.post(url, json=payload, timeout=aiohttp.ClientTimeout(total=20)) as resp:
+            async with session.post(url, json=payload, timeout=aiohttp.ClientTimeout(total=30)) as resp:
                 if resp.status != 200:
                     body = await resp.text()
                     logger.warning("Gemini API returned %d: %s", resp.status, body[:200])
