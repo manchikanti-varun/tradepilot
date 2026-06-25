@@ -436,36 +436,31 @@ class AngelOneProvider(MarketDataProvider):
         # Nifty 50 token is 99926000 on Angel One
         data = _session.smart_api.ltpData("NSE", "Nifty 50", "99926000")
         if data and data.get("status") and data.get("data"):
-            return float(data["data"].get("ltp", 0))
+            val = float(data["data"].get("ltp", 0))
+            # Nifty should be between 10000 and 50000
+            if 10000 < val < 50000:
+                return val
         return 0.0
 
     async def get_vix(self) -> float:
-        """Get India VIX from Angel One."""
-        if not await _session.ensure_logged_in() or not self._check_daily_limit():
-            fallback = await self._get_fallback()
-            return await fallback.get_vix()
-
-        try:
-            loop = asyncio.get_event_loop()
-            data = await asyncio.wait_for(
-                loop.run_in_executor(None, self._fetch_vix),
-                timeout=5,
-            )
-            if data and data > 0:
-                self._increment_calls()
-                return data
-        except Exception as e:
-            logger.warning("Angel One VIX fetch failed: %s", str(e)[:80])
-
+        """Get India VIX — uses yfinance (more reliable for VIX than Angel One token)."""
+        # Angel One's VIX token is unreliable — use yfinance for this one value
         fallback = await self._get_fallback()
         return await fallback.get_vix()
 
     def _fetch_vix(self) -> float:
-        """Fetch India VIX."""
-        # India VIX token is 99926004 on Angel One
-        data = _session.smart_api.ltpData("NSE", "India VIX", "99926004")
-        if data and data.get("status") and data.get("data"):
-            return float(data["data"].get("ltp", 0))
+        """Fetch India VIX. Falls back to yfinance if Angel One returns invalid data."""
+        # Try India VIX token on NSE
+        try:
+            data = _session.smart_api.ltpData("NSE", "India VIX", "99926004")
+            if data and data.get("status") and data.get("data"):
+                val = float(data["data"].get("ltp", 0))
+                # VIX should be between 5 and 100 — if outside, it's wrong data
+                if 5 < val < 100:
+                    return val
+        except Exception:
+            pass
+        # Return 0 to trigger fallback
         return 0.0
 
     async def get_bulk_ltp(self, symbols: list[str]) -> dict[str, float]:
