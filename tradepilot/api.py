@@ -109,9 +109,11 @@ async def global_exception_handler(request: Request, exc: Exception):
 async def health():
     """Health check — used by Railway deploy verification AND external keep-alive pings."""
     state = get_state()
+    provider_name = type(state.market_data).__name__
     return {
         "status": "healthy",
         "version": "3.4.0",
+        "data_source": provider_name,
         "last_scan_time": state.last_scan_time.isoformat() if state.last_scan_time else None,
         "active_trade": state.active_trade.ticker if state.active_trade else None,
         "market_mode": state.market_mode.value,
@@ -550,18 +552,18 @@ async def trigger_monitor():
 
 @app.get("/api/debug/data-check")
 async def debug_data_check():
-    """Diagnose Yahoo Finance connectivity. Tests LTP + candles for 3 stocks."""
+    """Diagnose data provider connectivity. Tests LTP + candles for 3 stocks."""
     if not DEBUG_ENDPOINTS_ENABLED:
         raise HTTPException(status_code=404, detail="Debug endpoints disabled")
 
-    import traceback
     import asyncio
-    from tradepilot.layer1.yahoo_provider import YahooFinanceProvider
     from datetime import timedelta
 
-    provider = YahooFinanceProvider()
+    state = get_state()
+    provider = state.market_data
+    provider_name = type(provider).__name__
     test_symbols = ["RELIANCE", "TCS", "SBIN"]
-    results = {}
+    results = {"_provider": provider_name}
 
     for sym in test_symbols:
         result = {"ltp": None, "ltp_error": None, "candles_5m": None, "candles_1d": None, "candle_error": None}

@@ -56,6 +56,27 @@ def now_ist() -> datetime:
     return datetime.now(IST)
 
 
+def _create_provider() -> MarketDataProvider:
+    """Create the best available market data provider.
+    
+    Uses Angel One SmartAPI if credentials are configured,
+    otherwise falls back to Yahoo Finance.
+    """
+    import os
+    if all([
+        os.environ.get("ANGEL_API_KEY"),
+        os.environ.get("ANGEL_CLIENT_ID"),
+        os.environ.get("ANGEL_PASSWORD"),
+        os.environ.get("ANGEL_TOTP_SECRET"),
+    ]):
+        from tradepilot.layer1.angel_provider import AngelOneProvider
+        logger.info("Using Angel One SmartAPI as primary data provider")
+        return AngelOneProvider()
+    else:
+        logger.info("Angel One credentials not found — using Yahoo Finance")
+        return YahooFinanceProvider()
+
+
 @dataclass
 class SignalCard:
     symbol: str
@@ -78,7 +99,7 @@ class SignalCard:
 
 @dataclass
 class SystemState:
-    market_data: MarketDataProvider = field(default_factory=YahooFinanceProvider)
+    market_data: MarketDataProvider = field(default_factory=lambda: _create_provider())
     tracker: TradeTracker = field(default_factory=TradeTracker)
     growth_state: Optional[GrowthState] = None
     risk_state: Optional[RiskState] = None
