@@ -39,6 +39,13 @@ def setup_scheduler():
     )
 
     scheduler.add_job(
+        _refresh_stock_universe,
+        CronTrigger(day_of_week="mon", hour=8, minute=0, timezone=IST),
+        id="universe_refresh", name="Weekly Universe Refresh",
+        replace_existing=True,
+    )
+
+    scheduler.add_job(
         generate_morning_brief,
         CronTrigger(hour=8, minute=45, timezone=IST),
         id="morning_brief", name="Morning Brief",
@@ -206,6 +213,15 @@ async def _reset_daily_state():
         logger.info("Daily state reset for %s", tomorrow)
     except Exception as e:
         logger.error("Daily reset failed: %s", e)
+
+
+async def _refresh_stock_universe():
+    """Monday 8 AM — refresh Nifty 200 universe from NSE."""
+    try:
+        from tradepilot.layer1.nifty_universe import refresh_universe
+        await refresh_universe()
+    except Exception as e:
+        logger.error("Universe refresh failed: %s", e)
 
 
 def start_scheduler():

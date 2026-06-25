@@ -191,9 +191,13 @@ class YahooFinanceProvider(MarketDataProvider):
         return DepthSnapshot(bids=bids, asks=asks, timestamp=datetime.now())
 
     async def get_instrument_list(self) -> list[Instrument]:
-        """Return instrument universe from nifty_universe.py."""
+        """Return instrument universe — live from NSE (cached in DB)."""
         if self._instruments is None:
-            stocks = get_universe(include_nifty500=False)
+            from tradepilot.layer1.nifty_universe import get_universe_async, get_universe
+            try:
+                stocks = await get_universe_async()
+            except Exception:
+                stocks = get_universe()
             self._instruments = [
                 Instrument(symbol=s.symbol, name=s.name, sector=s.sector)
                 for s in stocks

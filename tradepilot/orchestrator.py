@@ -95,6 +95,7 @@ class SignalCard:
     entry_check: EntryCheckResult
     message: str
     priority: int
+    generated_at: datetime = field(default_factory=datetime.now)
 
 
 @dataclass
@@ -130,6 +131,15 @@ async def initialize():
     """Initialize database and load state."""
     await init_db()
     state = get_state()
+
+    # Load stock universe (from DB or NSE)
+    try:
+        from tradepilot.layer1.nifty_universe import get_universe_async
+        universe = await get_universe_async()
+        logger.info("Stock universe loaded: %d stocks", len(universe))
+    except Exception as e:
+        logger.warning("Universe load failed (using fallback): %s", e)
+
     state.growth_state = await get_growth_state()
     state.active_trade = await state.tracker.get_active_trade()
     logger.info(
@@ -304,6 +314,22 @@ async def _run_live_pipeline_inner():
     state.signals = signals
     if signals:
         logger.info("Priority #1: %s (net ₹%.2f)", signals[0].symbol, signals[0].net_after_charges)
+        # Log signal to history
+        try:
+            async with get_db() as db:
+                for sig in signals[:3]:  # Log top 3
+                    await db.execute(
+                        """INSERT INTO signal_history
+                        (date, timestamp, symbol, sector, grade, composite, ltp, qty, stop_price, target, net_after_charges, risk_reward)
+                        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+                        (now_ist().strftime("%Y-%m-%d"), now_ist().isoformat(),
+                         sig.symbol, sig.sector, sig.grade, sig.composite,
+                         sig.ltp, sig.qty, sig.stop_price, sig.target,
+                         sig.net_after_charges, sig.risk_reward),
+                    )
+                await db.commit()
+        except Exception as e:
+            logger.warning("Failed to log signal history: %s", e)
 
 
 async def _build_signal_card(score: StockScore, priority: int, state: SystemState, growth: GrowthState) -> Optional[SignalCard]:

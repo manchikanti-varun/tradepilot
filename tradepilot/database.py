@@ -210,4 +210,73 @@ CREATE TABLE IF NOT EXISTS nifty_daily (
     open_value REAL,
     close_value REAL
 );
+
+-- Signal history (every signal that fired)
+CREATE TABLE IF NOT EXISTS signal_history (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    date TEXT NOT NULL,
+    timestamp TEXT NOT NULL,
+    symbol TEXT NOT NULL,
+    sector TEXT,
+    grade TEXT,
+    composite REAL,
+    ltp REAL,
+    qty INTEGER,
+    stop_price REAL,
+    target REAL,
+    net_after_charges REAL,
+    risk_reward REAL,
+    outcome TEXT DEFAULT 'PENDING'
+);
+
+-- Stock universe (live from NSE, refreshed weekly)
+CREATE TABLE IF NOT EXISTS stock_universe (
+    symbol TEXT PRIMARY KEY,
+    company TEXT NOT NULL,
+    sector TEXT NOT NULL,
+    index_name TEXT NOT NULL,
+    added_date TEXT NOT NULL
+);
+
+-- User settings (key-value, persisted)
+CREATE TABLE IF NOT EXISTS user_settings (
+    key TEXT PRIMARY KEY,
+    value TEXT NOT NULL,
+    updated_at TEXT NOT NULL
+);
+
+-- Trade notes / journal
+CREATE TABLE IF NOT EXISTS trade_notes (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    trade_id INTEGER NOT NULL,
+    note TEXT NOT NULL,
+    tags TEXT,
+    created_at TEXT NOT NULL
+);
+
+-- Price alerts (user-set)
+CREATE TABLE IF NOT EXISTS price_alerts (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    symbol TEXT NOT NULL,
+    target_price REAL NOT NULL,
+    direction TEXT NOT NULL,
+    triggered INTEGER DEFAULT 0,
+    created_at TEXT NOT NULL,
+    triggered_at TEXT
+);
+
+-- Watchlist favorites (pinned stocks)
+CREATE TABLE IF NOT EXISTS favorites (
+    symbol TEXT PRIMARY KEY,
+    added_at TEXT NOT NULL
+);
+
+-- Trade insights (learned patterns)
+CREATE TABLE IF NOT EXISTS trade_insights (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    type TEXT NOT NULL,
+    insight TEXT NOT NULL,
+    data_json TEXT,
+    created_at TEXT NOT NULL
+);
 """

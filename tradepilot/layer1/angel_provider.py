@@ -403,8 +403,12 @@ class AngelOneProvider(MarketDataProvider):
         return DepthSnapshot(bids=bids, asks=asks, timestamp=datetime.now())
 
     async def get_instrument_list(self) -> list[Instrument]:
-        """Return instrument universe from nifty_universe.py."""
-        stocks = get_universe(include_nifty500=False)
+        """Return instrument universe — live from NSE (cached in DB)."""
+        from tradepilot.layer1.nifty_universe import get_universe_async, get_universe
+        try:
+            stocks = await get_universe_async()
+        except Exception:
+            stocks = get_universe()
         return [
             Instrument(symbol=s.symbol, name=s.name, sector=s.sector)
             for s in stocks

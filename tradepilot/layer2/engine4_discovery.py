@@ -203,7 +203,10 @@ async def score_stock(
         recent_vol = float(volumes.iloc[-5:].mean()) if len(volumes) >= 5 else 0
         avg_vol = float(volumes.iloc[-20:].mean()) if len(volumes) >= 20 else recent_vol
         volume_ratio = recent_vol / avg_vol if avg_vol > 0 else 1.0
-        volume_score = min(100, max(0, 50 + (volume_ratio - 1.0) * 50))
+        # Volume spike bonus: if current vol > 2x average, strong interest
+        volume_spike = volume_ratio > 2.0
+        base_vol_score = min(100, max(0, 50 + (volume_ratio - 1.0) * 50))
+        volume_score = min(100, base_vol_score + (15 if volume_spike else 0))
 
         # --- NEWS (25%) — Real sentiment from Engine 27 ---
         # Uses live RSS feeds (Moneycontrol, ET) to compute market sentiment.
@@ -227,6 +230,28 @@ async def score_stock(
             momentum_score = min(100, max(0, 50 + slope * 10))
         else:
             momentum_score = 50.0
+
+        # --- 52-WEEK PROXIMITY CHECK (penalty) ---
+        # Stocks near 52-week high get slight boost, near low get penalized
+        high_52w = float(closes.max())
+        low_52w = float(closes.min())
+        if high_52w > low_52w and high_52w > 0:
+            position_in_range = (ltp - low_52w) / (high_52w - low_52w)  # 0=at low, 1=at high
+            # Near highs (>0.85) = strong momentum, bonus
+            # Near lows (<0.2) = weak, penalty
+            if position_in_range > 0.85:
+                momentum_score = min(100, momentum_score + 10)
+            elif position_in_range < 0.2:
+                momentum_score = max(0, momentum_score - 15)
+
+        # --- CIRCUIT LIMIT CHECK (hard filter) ---
+        # If price is within 2% of data range extremes, skip it (likely near circuit)
+        if high_52w > 0 and ltp > 0:
+            pct_from_high = (high_52w - ltp) / ltp * 100
+            if pct_from_high < 0.5:
+                # Very close to upper circuit/limit — risky to enter
+                logger.info("Skipping %s: within 0.5%% of range high (possible circuit)", symbol)
+                return None
 
         # --- COMPOSITE ---
         composite = (
@@ -270,13 +295,13 @@ async def build_watchlist(
     """
     Step 1: Morning universe filter.
     Returns instruments passing all filters for the given tier.
+    Uses live Nifty 200 universe (refreshed weekly from NSE).
     """
     tier_config = TIER_CONFIGS[tier]
     leverage = tier_config.leverage
 
     # Compute price_max
     if "min(" in tier_config.price_max_formula:
-        # "min(X, capital*leverage/2)"
         parts = tier_config.price_max_formula.replace("min(", "").replace(")", "").split(",")
         cap_val = float(parts[0].strip())
         computed = capital * leverage / 2
@@ -286,15 +311,8 @@ async def build_watchlist(
 
     all_instruments = await market_data.get_instrument_list()
 
-    # Filter by price band (we'll check volume via candles if possible)
-    # For MVP, do basic filtering — volume check happens during scoring
-    filtered = []
-    for inst in all_instruments:
-        # Only include from correct universe
-        # (simplified: all instruments from provider are already Nifty200/500 based on tier)
-        filtered.append(inst)
-
-    return filtered[:50]  # Cap at 50 candidates for scoring
+    # Use all instruments from universe (up to 100 for scoring — balance speed vs coverage)
+    return all_instruments[:100]
 
 
 async def scan_and_score(

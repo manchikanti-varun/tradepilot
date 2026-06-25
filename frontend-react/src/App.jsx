@@ -1,20 +1,24 @@
 import { useState, useEffect, useCallback, useRef } from 'react'
 import { api, formatClock } from './api'
-import { LayoutDashboard, Radio, BarChart3, History, Newspaper } from 'lucide-react'
+import { LayoutDashboard, Radio, History, Settings, BarChart3, LineChart } from 'lucide-react'
 import Dashboard from './pages/Dashboard'
 import WatchlistPage from './pages/WatchlistPage'
 import HistoryPage from './pages/HistoryPage'
-import StatsPage from './pages/StatsPage'
 import NewsPage from './pages/NewsPage'
+import StatsPage from './pages/StatsPage'
+import RealityCheckPage from './pages/RealityCheckPage'
+import ChartPage from './pages/ChartPage'
+import SettingsPage from './pages/SettingsPage'
 import Toast from './components/Toast'
 import NotificationBanner from './components/NotificationBanner'
 
 const NAV_ITEMS = [
   { id: 'dashboard', label: 'Home', icon: LayoutDashboard },
-  { id: 'watchlist', label: 'Watchlist', icon: Radio },
-  { id: 'news', label: 'News', icon: Newspaper },
-  { id: 'history', label: 'Trades', icon: History },
+  { id: 'watchlist', label: 'Scan', icon: Radio },
+  { id: 'chart', label: 'Chart', icon: LineChart },
   { id: 'stats', label: 'Stats', icon: BarChart3 },
+  { id: 'history', label: 'Trades', icon: History },
+  { id: 'settings', label: 'More', icon: Settings },
 ]
 
 let notifIdCounter = 0
@@ -200,8 +204,11 @@ export default function App() {
           {page === 'dashboard' && <Dashboard {...ctx} />}
           {page === 'watchlist' && <WatchlistPage />}
           {page === 'news' && <NewsPage />}
+          {page === 'stats' && <StatsPage onNavigate={setPage} />}
+          {page === 'reality' && <RealityCheckPage />}
+          {page === 'chart' && <ChartPage />}
           {page === 'history' && <HistoryPage />}
-          {page === 'stats' && <StatsPage perf={perf} />}
+          {page === 'settings' && <SettingsPage growth={growth} onCapitalUpdate={handleCapitalUpdate} />}
         </div>
       </div>
 

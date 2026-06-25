@@ -1,15 +1,23 @@
-"""Nifty Universe — seed list of symbols with sector tags.
+"""Nifty Universe — live from NSE + DB-backed with weekly refresh.
 
-~75 Nifty200 + ~20 Nifty500-extra symbols.
-Placeholder until a live NSE constituent pull replaces it before real money.
+Flow:
+1. On first call, tries to load from SQLite (stock_universe table)
+2. If DB is empty or stale (>7 days), fetches live from NSE website
+3. If NSE fetch fails, uses hardcoded fallback (75 stocks)
+4. Scheduler refreshes every Monday 8:00 AM IST
 
-NOTE: This list was manually assembled from NSE's Nifty 200 and Nifty 500 indices.
-Sectors are approximate. Before the 50-trade validation run completes, this should
-be replaced with an automated pull from NSE's index constituents API.
+NSE endpoint: https://www.nseindia.com/api/equity-stockIndices?index=NIFTY%20200
 """
 
+import asyncio
+import logging
 from dataclasses import dataclass
+from datetime import datetime, timedelta
 from typing import Optional
+
+import aiohttp
+
+logger = logging.getLogger(__name__)
 
 
 @dataclass
@@ -20,8 +28,160 @@ class StockInfo:
     index: str  # "Nifty200" or "Nifty500"
 
 
-# Core Nifty200 (~75 most liquid names)
-NIFTY200_STOCKS = [
+# In-memory cache
+_universe_cache: list[StockInfo] = []
+_cache_loaded_at: Optional[datetime] = None
+_CACHE_TTL = timedelta(hours=24)
+
+# NSE headers (required to avoid 403)
+_NSE_HEADERS = {
+    "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/125.0.0.0 Safari/537.36",
+    "Accept": "application/json, text/plain, */*",
+    "Accept-Language": "en-US,en;q=0.9",
+    "Referer": "https://www.nseindia.com/market-data/live-equity-market",
+}
+
+
+async def fetch_nifty200_from_nse() -> list[StockInfo]:
+    """Fetch live Nifty 200 constituents from NSE website."""
+    stocks = []
+    try:
+        async with aiohttp.ClientSession(headers=_NSE_HEADERS) as session:
+            # First hit the main page to get cookies
+            async with session.get("https://www.nseindia.com", timeout=aiohttp.ClientTimeout(total=10)) as resp:
+                if resp.status != 200:
+                    logger.warning("NSE main page returned %d", resp.status)
+
+            # Now fetch Nifty 200 constituents
+            url = "https://www.nseindia.com/api/equity-stockIndices?index=NIFTY%20200"
+            async with session.get(url, timeout=aiohttp.ClientTimeout(total=15)) as resp:
+                if resp.status != 200:
+                    logger.warning("NSE Nifty 200 API returned %d", resp.status)
+                    return []
+                data = await resp.json()
+
+        if not data or "data" not in data:
+            logger.warning("NSE Nifty 200 response has no 'data' field")
+            return []
+
+        for item in data["data"]:
+            symbol = item.get("symbol", "")
+            if not symbol or symbol == "NIFTY 200":
+                continue
+            stocks.append(StockInfo(
+                symbol=symbol,
+                name=item.get("companyName", symbol),
+                sector=item.get("industry", "Unknown"),
+                index="Nifty200",
+            ))
+
+        logger.info("Fetched %d stocks from NSE Nifty 200", len(stocks))
+        return stocks
+
+    except asyncio.TimeoutError:
+        logger.warning("NSE Nifty 200 fetch timed out")
+    except Exception as e:
+        logger.warning("NSE Nifty 200 fetch failed: %s", str(e)[:100])
+    return []
+
+
+async def save_universe_to_db(stocks: list[StockInfo]):
+    """Save stock universe to SQLite."""
+    from tradepilot.database import get_db
+    async with get_db() as db:
+        await db.execute("DELETE FROM stock_universe")
+        for s in stocks:
+            await db.execute(
+                "INSERT INTO stock_universe (symbol, company, sector, index_name, added_date) VALUES (?, ?, ?, ?, ?)",
+                (s.symbol, s.name, s.sector, s.index, datetime.now().strftime("%Y-%m-%d")),
+            )
+        await db.commit()
+    logger.info("Saved %d stocks to stock_universe table", len(stocks))
+
+
+async def load_universe_from_db() -> list[StockInfo]:
+    """Load stock universe from SQLite."""
+    from tradepilot.database import get_db
+    stocks = []
+    try:
+        async with get_db() as db:
+            rows = await db.execute("SELECT symbol, company, sector, index_name FROM stock_universe")
+            async for row in rows:
+                stocks.append(StockInfo(
+                    symbol=row["symbol"],
+                    name=row["company"],
+                    sector=row["sector"],
+                    index=row["index_name"],
+                ))
+    except Exception as e:
+        logger.warning("Failed to load universe from DB: %s", str(e)[:80])
+    return stocks
+
+
+async def refresh_universe():
+    """Fetch fresh Nifty 200 from NSE and save to DB. Called weekly."""
+    stocks = await fetch_nifty200_from_nse()
+    if stocks and len(stocks) >= 50:  # Sanity check — NSE should return ~200
+        await save_universe_to_db(stocks)
+        global _universe_cache, _cache_loaded_at
+        _universe_cache = stocks
+        _cache_loaded_at = datetime.now()
+        logger.info("Universe refreshed: %d stocks", len(stocks))
+    else:
+        logger.warning("Universe refresh got only %d stocks — keeping existing", len(stocks))
+
+
+async def get_universe_async() -> list[StockInfo]:
+    """Get the stock universe (async). Tries DB first, then NSE, then fallback."""
+    global _universe_cache, _cache_loaded_at
+
+    # Return cache if fresh
+    if _universe_cache and _cache_loaded_at and datetime.now() - _cache_loaded_at < _CACHE_TTL:
+        return _universe_cache
+
+    # Try loading from DB
+    stocks = await load_universe_from_db()
+    if stocks and len(stocks) >= 50:
+        _universe_cache = stocks
+        _cache_loaded_at = datetime.now()
+        return stocks
+
+    # Try fetching from NSE
+    stocks = await fetch_nifty200_from_nse()
+    if stocks and len(stocks) >= 50:
+        await save_universe_to_db(stocks)
+        _universe_cache = stocks
+        _cache_loaded_at = datetime.now()
+        return stocks
+
+    # Fallback to hardcoded
+    logger.warning("Using hardcoded fallback universe")
+    _universe_cache = FALLBACK_STOCKS
+    _cache_loaded_at = datetime.now()
+    return FALLBACK_STOCKS
+
+
+def get_universe(include_nifty500: bool = False) -> list[StockInfo]:
+    """Synchronous access — returns cached universe or fallback."""
+    if _universe_cache:
+        return _universe_cache
+    return FALLBACK_STOCKS
+
+
+def get_symbol_list(include_nifty500: bool = False) -> list[str]:
+    """Get just the symbol strings."""
+    return [s.symbol for s in get_universe(include_nifty500)]
+
+
+def get_sector_map(include_nifty500: bool = False) -> dict[str, str]:
+    """Get symbol→sector mapping."""
+    return {s.symbol: s.sector for s in get_universe(include_nifty500)}
+
+
+# ═══════════════════════════════════════════════════════════════════
+# HARDCODED FALLBACK — used only if NSE + DB both fail
+# ═══════════════════════════════════════════════════════════════════
+FALLBACK_STOCKS = [
     StockInfo("RELIANCE", "Reliance Industries", "Oil & Gas", "Nifty200"),
     StockInfo("TCS", "Tata Consultancy", "IT", "Nifty200"),
     StockInfo("HDFCBANK", "HDFC Bank", "Banking", "Nifty200"),
@@ -98,44 +258,3 @@ NIFTY200_STOCKS = [
     StockInfo("VOLTAS", "Voltas", "Consumer", "Nifty200"),
     StockInfo("SIEMENS", "Siemens India", "Infrastructure", "Nifty200"),
 ]
-
-# Nifty500-extra (beyond Nifty200, for Tier D universe expansion)
-NIFTY500_EXTRA = [
-    StockInfo("POLYCAB", "Polycab India", "Infrastructure", "Nifty500"),
-    StockInfo("TATAELXSI", "Tata Elxsi", "IT", "Nifty500"),
-    StockInfo("Dixon", "Dixon Technologies", "Electronics", "Nifty500"),
-    StockInfo("DEEPAKNTR", "Deepak Nitrite", "Chemicals", "Nifty500"),
-    StockInfo("ASTRAL", "Astral", "Infrastructure", "Nifty500"),
-    StockInfo("AFFLE", "Affle India", "Tech", "Nifty500"),
-    StockInfo("ROUTE", "Route Mobile", "Tech", "Nifty500"),
-    StockInfo("KPITTECH", "KPIT Technologies", "IT", "Nifty500"),
-    StockInfo("ANGELONE", "Angel One", "Finance", "Nifty500"),
-    StockInfo("HAPPSTMNDS", "Happiest Minds", "IT", "Nifty500"),
-    StockInfo("KAYNES", "Kaynes Technology", "Electronics", "Nifty500"),
-    StockInfo("JYOTHYLAB", "Jyothy Labs", "FMCG", "Nifty500"),
-    StockInfo("RADICO", "Radico Khaitan", "FMCG", "Nifty500"),
-    StockInfo("GRINDWELL", "Grindwell Norton", "Manufacturing", "Nifty500"),
-    StockInfo("FINEORG", "Fine Organic", "Chemicals", "Nifty500"),
-    StockInfo("CLEAN", "Clean Science", "Chemicals", "Nifty500"),
-    StockInfo("RATNAMANI", "Ratnamani Metals", "Metals", "Nifty500"),
-    StockInfo("CAMS", "CAMS", "Finance", "Nifty500"),
-    StockInfo("CDSL", "CDSL", "Finance", "Nifty500"),
-    StockInfo("SONACOMS", "Sona BLW", "Auto", "Nifty500"),
-]
-
-
-def get_universe(include_nifty500: bool = False) -> list[StockInfo]:
-    """Get the full universe list based on tier."""
-    if include_nifty500:
-        return NIFTY200_STOCKS + NIFTY500_EXTRA
-    return NIFTY200_STOCKS
-
-
-def get_symbol_list(include_nifty500: bool = False) -> list[str]:
-    """Get just the symbol strings."""
-    return [s.symbol for s in get_universe(include_nifty500)]
-
-
-def get_sector_map(include_nifty500: bool = False) -> dict[str, str]:
-    """Get symbol→sector mapping."""
-    return {s.symbol: s.sector for s in get_universe(include_nifty500)}
