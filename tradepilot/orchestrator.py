@@ -344,11 +344,20 @@ async def _build_signal_card(score: StockScore, priority: int, state: SystemStat
         await log_rejection(score.symbol, "ENTRY_TIMING_FAILED", score.composite, score.ltp)
         return None
 
-    # ATR
+    # ATR — use daily candles for proper intraday targets
     candles = await state.market_data.get_candles(
         score.symbol, "5m", from_dt=now_ist() - timedelta(days=5), to_dt=now_ist(),
     )
-    atr = compute_atr(candles)
+    atr_5m = compute_atr(candles)
+
+    # Get daily ATR for realistic target/stop
+    daily_candles = await state.market_data.get_candles(
+        score.symbol, "1d", from_dt=now_ist() - timedelta(days=20), to_dt=now_ist(),
+    )
+    daily_atr = compute_atr(daily_candles) if not daily_candles.empty and len(daily_candles) >= 5 else 0
+
+    # Use daily ATR if available, otherwise estimate from 5m (multiply by ~3)
+    atr = daily_atr if daily_atr > 0 else (atr_5m * 3 if atr_5m > 0 else 0)
     if atr <= 0:
         return None
 

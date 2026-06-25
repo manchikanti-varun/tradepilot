@@ -29,6 +29,7 @@ export const api = {
   alerts: () => get('/api/alerts'),
   sectors: () => get('/api/market/sectors'),
   movers: () => get('/api/market/movers'),
+  screener: () => get('/api/screener'),
   signalHistory: (limit = 50) => get(`/api/signals/history?limit=${limit}`),
   chart: (symbol, interval = '5m') => get(`/api/chart/${symbol}?interval=${interval}`),
   stockPlan: (symbol) => get(`/api/stock/${symbol}/plan`),

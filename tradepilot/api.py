@@ -819,7 +819,7 @@ async def get_stock_trading_plan(symbol: str):
     volume_ratio = recent_vol / avg_vol if avg_vol > 0 else 1.0
 
     # Key levels
-    day_high = float(highs.iloc[-78:].max()) if len(highs) >= 78 else float(highs.max())  # ~1 day of 5m
+    day_high = float(highs.iloc[-78:].max()) if len(highs) >= 78 else float(highs.max())
     day_low = float(lows.iloc[-78:].min()) if len(lows) >= 78 else float(lows.min())
     range_high = float(highs.max())
     range_low = float(lows.min())
@@ -828,20 +828,36 @@ async def get_stock_trading_plan(symbol: str):
     resistance = float(highs.iloc[-30:].max()) if len(highs) >= 30 else day_high
     support = float(lows.iloc[-30:].min()) if len(lows) >= 30 else day_low
 
-    # Entry zone (near VWAP or above EMA9 with volume)
-    entry_low = round(max(vwap - atr * 0.1, ema9 - atr * 0.1), 2)
-    entry_high = round(max(vwap + atr * 0.15, ema9 + atr * 0.15), 2)
+    # Daily ATR for proper target/stop calculation
+    # 5-min ATR is too small for intraday targets. Use day range instead.
+    daily_range = day_high - day_low
+    if daily_range < ltp * 0.005:  # If range is less than 0.5%, use % based
+        daily_range = ltp * 0.01  # Assume 1% daily range minimum
 
-    # Stop loss (below support or below entry - 0.4*ATR)
-    stop_loss = round(min(entry_low - atr * 0.4, support - atr * 0.1), 2)
+    # Also try to get daily candles for better ATR
+    try:
+        daily_candles = await state.market_data.get_candles(symbol, "1d", now - timedelta(days=20), now)
+        if not daily_candles.empty and len(daily_candles) >= 5:
+            daily_atr = compute_atr(daily_candles)
+            if daily_atr > 0:
+                daily_range = daily_atr
+    except Exception:
+        pass
 
-    # Targets (ATR-based)
-    target_1 = round(ltp + atr * 0.4, 2)
-    target_2 = round(ltp + atr * 0.7, 2)
-    target_3 = round(ltp + atr * 1.0, 2)
+    # Entry zone (near VWAP or support with room to move up)
+    entry_low = round(max(vwap - daily_range * 0.05, support + daily_range * 0.1), 2)
+    entry_high = round(min(vwap + daily_range * 0.05, ltp + daily_range * 0.05), 2)
+
+    # Stop loss: below support or 30% of daily range below entry
+    stop_loss = round(max(support - daily_range * 0.1, ltp - daily_range * 0.3), 2)
+
+    # Targets: based on daily ATR (realistic intraday moves)
+    target_1 = round(ltp + daily_range * 0.3, 2)   # Conservative: 30% of daily range
+    target_2 = round(ltp + daily_range * 0.5, 2)   # Moderate: 50% of daily range
+    target_3 = round(ltp + daily_range * 0.8, 2)   # Aggressive: 80% of daily range
 
     # Risk-reward
-    risk_per_share = ltp - stop_loss
+    risk_per_share = max(ltp - stop_loss, 1.0)  # minimum ₹1 risk
     reward_1 = target_1 - ltp
     rr_ratio = round(reward_1 / risk_per_share, 2) if risk_per_share > 0 else 0
 
@@ -850,8 +866,8 @@ async def get_stock_trading_plan(symbol: str):
     capital = growth.current_capital
     leverage = 5.0
     max_qty = int((capital * leverage) // ltp)
-    # Risk-based qty: max 2% capital at risk
-    max_risk = capital * 0.12  # proven risk %
+    # Risk-based qty: limit loss to 2-3% of capital
+    max_risk = capital * 0.03  # 3% max loss per trade
     risk_qty = int(max_risk / risk_per_share) if risk_per_share > 0 else max_qty
     suggested_qty = min(max_qty, risk_qty)
 
@@ -1480,6 +1496,102 @@ async def get_eod_summary():
         "net_pnl": round(data["net_pnl"] or 0, 2),
         "charges": round(data["total_charges"] or 0, 2),
         "capital_now": growth["current_capital"] if growth else 0,
+    }
+
+
+@app.get("/api/screener")
+async def get_screener():
+    """Advanced screener — bullish/bearish stocks across timeframes, independent of capital."""
+    from tradepilot.layer2.engine4_discovery import compute_ema, compute_rsi, compute_macd, compute_atr, compute_vwap
+    state = get_state()
+    scores = state.watchlist_scores
+    if not scores:
+        return {"bullish": [], "bearish": [], "breakout": [], "oversold": [], "high_volume": []}
+
+    now = datetime.now()
+    bullish = []
+    bearish = []
+    breakout = []
+    oversold = []
+    high_volume = []
+
+    for s in scores[:50]:
+        try:
+            candles = await state.market_data.get_candles(s.symbol, "5m", now - timedelta(days=5), now)
+            if candles.empty or len(candles) < 30:
+                continue
+
+            closes = candles["close"]
+            volumes = candles["volume"]
+            highs = candles["high"]
+
+            rsi = compute_rsi(closes)
+            ema9 = compute_ema(closes, 9)
+            ema21 = compute_ema(closes, 21)
+            _, _, macd_hist = compute_macd(closes)
+            vwap = compute_vwap(candles)
+            atr = compute_atr(candles)
+            ltp = float(closes.iloc[-1])
+
+            # Volume ratio
+            recent_vol = float(volumes.iloc[-5:].mean()) if len(volumes) >= 5 else 0
+            avg_vol = float(volumes.iloc[-20:].mean()) if len(volumes) >= 20 else recent_vol
+            vol_ratio = recent_vol / avg_vol if avg_vol > 0 else 1.0
+
+            # Day high
+            day_high = float(highs.iloc[-78:].max()) if len(highs) >= 78 else float(highs.max())
+
+            stock_data = {
+                "symbol": s.symbol, "sector": s.sector, "ltp": round(ltp, 2),
+                "rsi": round(rsi, 1), "ema9": round(ema9, 2), "ema21": round(ema21, 2),
+                "macd": "Positive" if macd_hist > 0 else "Negative",
+                "vwap_relation": "Above" if ltp > vwap else "Below",
+                "volume_ratio": round(vol_ratio, 1),
+                "score": s.composite, "grade": s.grade.value,
+            }
+
+            # Categorize
+            # Bullish: EMA9 > EMA21 + MACD positive + above VWAP
+            if ema9 > ema21 and macd_hist > 0 and ltp > vwap:
+                stock_data["reason"] = "Uptrend: EMA crossover + MACD positive + above VWAP"
+                bullish.append(stock_data)
+
+            # Bearish: EMA9 < EMA21 + MACD negative + below VWAP
+            elif ema9 < ema21 and macd_hist < 0 and ltp < vwap:
+                stock_data["reason"] = "Downtrend: EMA bearish + MACD negative + below VWAP"
+                bearish.append(stock_data)
+
+            # Breakout: Price near day high + volume spike
+            if ltp > day_high * 0.995 and vol_ratio > 1.5:
+                stock_data["reason"] = f"Breaking day high with {vol_ratio:.1f}x volume"
+                breakout.append(stock_data)
+
+            # Oversold bounce candidates: RSI < 35 + price near support
+            if rsi < 35:
+                stock_data["reason"] = f"RSI at {rsi:.0f} — heavily oversold, bounce possible"
+                oversold.append(stock_data)
+
+            # High volume movers
+            if vol_ratio > 2.0:
+                stock_data["reason"] = f"Volume {vol_ratio:.1f}x above average — unusual activity"
+                high_volume.append(stock_data)
+
+        except Exception:
+            continue
+
+    # Sort each category
+    bullish.sort(key=lambda x: x["score"], reverse=True)
+    bearish.sort(key=lambda x: x["score"])
+    breakout.sort(key=lambda x: x["volume_ratio"], reverse=True)
+
+    return {
+        "bullish": bullish[:10],
+        "bearish": bearish[:10],
+        "breakout": breakout[:5],
+        "oversold": oversold[:5],
+        "high_volume": high_volume[:5],
+        "total_scanned": len(scores),
+        "last_scan": state.last_scan_time.isoformat() if state.last_scan_time else None,
     }
 
 

@@ -3,6 +3,7 @@ import { api, formatClock } from './api'
 import { LayoutDashboard, Radio, History, Newspaper, Settings, BarChart3 } from 'lucide-react'
 import Dashboard from './pages/Dashboard'
 import WatchlistPage from './pages/WatchlistPage'
+import ScreenerPage from './pages/ScreenerPage'
 import HistoryPage from './pages/HistoryPage'
 import NewsPage from './pages/NewsPage'
 import StatsPage from './pages/StatsPage'
@@ -14,8 +15,8 @@ import NotificationBanner from './components/NotificationBanner'
 const NAV_ITEMS = [
   { id: 'dashboard', label: 'Home', icon: LayoutDashboard },
   { id: 'watchlist', label: 'Scan', icon: Radio },
+  { id: 'screener', label: 'Screener', icon: BarChart3 },
   { id: 'news', label: 'News', icon: Newspaper },
-  { id: 'stats', label: 'Stats', icon: BarChart3 },
   { id: 'history', label: 'Trades', icon: History },
   { id: 'settings', label: 'More', icon: Settings },
 ]
@@ -202,6 +203,7 @@ export default function App() {
         <div className="max-w-lg mx-auto px-4 pt-2">
           {page === 'dashboard' && <Dashboard {...ctx} />}
           {page === 'watchlist' && <WatchlistPage />}
+          {page === 'screener' && <ScreenerPage />}
           {page === 'news' && <NewsPage />}
           {page === 'stats' && <StatsPage onNavigate={setPage} />}
           {page === 'reality' && <RealityCheckPage />}
