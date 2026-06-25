@@ -1017,112 +1017,99 @@ async def get_stock_trading_plan(symbol: str):
         "trend_description": ai_result.get("reasoning", [""])[0] if ai_result.get("reasoning") else "",
     }
 
+
+@app.get("/api/stats/time-performance")
+async def get_time_performance():
+    """P&L by hour of entry — find your best trading times."""
+    from tradepilot.database import get_db
+    async with get_db() as db:
+        rows = await db.execute(
+            """SELECT entry_time, net_pnl, was_profitable
+            FROM trades WHERE status = 'CLOSED' AND entry_time IS NOT NULL"""
+        )
+        hourly = {}
+        async for row in rows:
+            try:
+                hour = int(row["entry_time"][11:13])
+                if hour not in hourly:
+                    hourly[hour] = {"trades": 0, "wins": 0, "pnl": 0}
+                hourly[hour]["trades"] += 1
+                hourly[hour]["pnl"] += row["net_pnl"] or 0
+                if row["was_profitable"]:
+                    hourly[hour]["wins"] += 1
+            except (ValueError, IndexError, TypeError):
+                continue
+    result = []
+    for h in range(9, 16):
+        data = hourly.get(h, {"trades": 0, "wins": 0, "pnl": 0})
+        wr = (data["wins"] / data["trades"] * 100) if data["trades"] > 0 else 0
+        result.append({"hour": h, "label": f"{h}:00", "trades": data["trades"],
+                       "wins": data["wins"], "pnl": round(data["pnl"], 2), "win_rate": round(wr, 1)})
+    return {"hours": result}
+
+
+# ═══════════════════════════════════════════════════════════════
+# FEATURES 1-24: FULL TRADING TERMINAL ENDPOINTS
+# ═══════════════════════════════════════════════════════════════
+
+@app.get("/api/position/live-pnl")
+async def get_live_pnl():
+    """Live P&L for active position."""
     state = get_state()
-    now = datetime.now()
+    trade = state.active_trade
+    if not trade:
+        return {"active": False}
+    try:
+        ltp = await state.market_data.get_ltp(trade.ticker)
+    except Exception:
+        ltp = trade.entry_price
+    from tradepilot.layer2.engine8_charges import calculate_angel_charges
+    gross = trade.qty * (ltp - trade.entry_price)
+    charges, _ = calculate_angel_charges(trade.qty, trade.entry_price, ltp)
+    net = gross - charges
+    pct = (net / trade.capital_used * 100) if trade.capital_used > 0 else 0
+    return {"active": True, "ticker": trade.ticker, "ltp": ltp,
+            "entry_price": trade.entry_price, "qty": trade.qty,
+            "gross_pnl": round(gross, 2), "charges": round(charges, 2),
+            "net_pnl": round(net, 2), "pnl_pct": round(pct, 2), "if_exit_now": round(net, 2)}
 
-    # Get candle data
-    candles = await state.market_data.get_candles(symbol, "5m", now - timedelta(days=5), now)
-    if candles.empty or len(candles) < 20:
-        raise HTTPException(status_code=404, detail=f"Insufficient data for {symbol}")
 
-    ltp = float(candles["close"].iloc[-1])
-    closes = candles["close"]
-    volumes = candles["volume"]
-    highs = candles["high"]
-    lows = candles["low"]
+@app.get("/api/market/premarket")
+async def get_premarket():
+    """Pre-market scanner — gap up/down stocks."""
+    state = get_state()
+    scores = state.watchlist_scores
+    if not scores:
+        return {"gap_ups": [], "gap_downs": []}
+    gaps = []
+    for s in scores[:30]:
+        try:
+            candles = await state.market_data.get_candles(s.symbol, "1d", datetime.now() - timedelta(days=3), datetime.now())
+            if candles.empty or len(candles) < 2:
+                continue
+            prev_close = float(candles["close"].iloc[-2])
+            curr = s.ltp
+            gap_pct = ((curr - prev_close) / prev_close * 100) if prev_close > 0 else 0
+            gaps.append({"symbol": s.symbol, "sector": s.sector, "prev_close": round(prev_close, 1),
+                         "current": round(curr, 1), "gap_pct": round(gap_pct, 2)})
+        except Exception:
+            continue
+    gap_ups = sorted([g for g in gaps if g["gap_pct"] > 0.3], key=lambda x: x["gap_pct"], reverse=True)[:5]
+    gap_downs = sorted([g for g in gaps if g["gap_pct"] < -0.3], key=lambda x: x["gap_pct"])[:5]
+    return {"gap_ups": gap_ups, "gap_downs": gap_downs}
 
-    # Compute indicators
-    rsi = compute_rsi(closes)
-    vwap = compute_vwap(candles)
-    macd_line, macd_signal, macd_hist = compute_macd(closes)
-    ema9 = compute_ema(closes, 9)
-    ema21 = compute_ema(closes, 21)
-    atr = compute_atr(candles)
 
-    # Volume analysis
-    recent_vol = float(volumes.iloc[-5:].mean()) if len(volumes) >= 5 else 0
-    avg_vol = float(volumes.iloc[-20:].mean()) if len(volumes) >= 20 else recent_vol
-    volume_ratio = recent_vol / avg_vol if avg_vol > 0 else 1.0
-
-    # Key levels
-    day_high = float(highs.iloc[-78:].max()) if len(highs) >= 78 else float(highs.max())
-    day_low = float(lows.iloc[-78:].min()) if len(lows) >= 78 else float(lows.min())
-    support = float(lows.iloc[-30:].min()) if len(lows) >= 30 else day_low
-    resistance = float(highs.iloc[-30:].max()) if len(highs) >= 30 else day_high
-
-    # Daily ATR
-    daily_candles = await state.market_data.get_candles(symbol, "1d", now - timedelta(days=20), now)
-    daily_atr = compute_atr(daily_candles) if not daily_candles.empty and len(daily_candles) >= 5 else max(day_high - day_low, ltp * 0.01)
-
-    # Build data for AI
-    stock_data = {
-        "ltp": round(ltp, 2),
-        "day_high": round(day_high, 2),
-        "day_low": round(day_low, 2),
-        "rsi": round(rsi, 1),
-        "ema9": round(ema9, 2),
-        "ema21": round(ema21, 2),
-        "macd": round(macd_hist, 4),
-        "vwap": round(vwap, 2),
-        "volume_ratio": round(volume_ratio, 2),
-        "atr": round(daily_atr, 2),
-        "support": round(support, 2),
-        "resistance": round(resistance, 2),
-    }
-
-    # Run dual AI analysis
-    ai_result = await dual_ai_analysis(symbol, stock_data)
-
-    # Get capital for position sizing
-    growth = await get_growth_state()
-    capital = growth.current_capital
-    leverage = 5.0
-
-    # Use AI-suggested levels if available, else compute from data
-    entry_price = ai_result.get("entry_price") or ltp
-    stop_loss = ai_result.get("stop_loss") or round(ltp - daily_atr * 0.3, 2)
-    target_1 = ai_result.get("target_1") or round(ltp + daily_atr * 0.5, 2)
-    target_2 = ai_result.get("target_2") or round(ltp + daily_atr * 0.8, 2)
-
-    # Position sizing
-    risk_per_share = max(ltp - stop_loss, 0.5)
-    max_qty = int((capital * leverage) // ltp)
-    max_loss_allowed = capital * 0.02
-    risk_qty = int(max_loss_allowed / risk_per_share) if risk_per_share > 0 else max_qty
-    suggested_qty = min(max_qty, risk_qty)
-
-    # Charges
-    charges, charge_breakdown = calculate_angel_charges(suggested_qty, ltp, target_1)
-    net_profit_t1 = suggested_qty * (target_1 - ltp) - charges
-
-    # Risk reward
-    reward_1 = target_1 - ltp
-    rr_ratio = ai_result.get("risk_reward") or (round(reward_1 / risk_per_share, 2) if risk_per_share > 0 else 0)
-
-    # Trend
-    if ema9 > ema21 and macd_hist > 0 and ltp > vwap:
-        trend = "BULLISH"
-        trend_desc = "Stock is in an uptrend — EMA9 above EMA21, MACD positive, price above VWAP."
-    elif ema9 < ema21 and macd_hist < 0 and ltp < vwap:
-        trend = "BEARISH"
-        trend_desc = "Stock is in a downtrend — avoid buying. Wait for reversal signals."
-    else:
-        trend = "SIDEWAYS"
-        trend_desc = "Stock is moving sideways — wait for a clear breakout above resistance or rejection at support."
-
-    # Sector
-    from tradepilot.layer1.nifty_universe import get_sector_map
-    sector_map = get_sector_map()
-    sector = sector_map.get(symbol, "Unknown")
-
-    return {
-        "symbol": symbol,
-        "sector": sector,
-        "ltp": ltp,
-        "trend": trend,
-        "trend_description": trend_desc,
-        "ai_analysis": {
-            "verdict": ai_result["verdict"],
+@app.post("/api/alerts/price")
+async def create_price_alert(request: PriceAlertRequest):
+    """Create price alert."""
+    from tradepilot.database import get_db
+    async with get_db() as db:
+        await db.execute(
+            "INSERT INTO price_alerts (symbol, target_price, direction, created_at) VALUES (?, ?, ?, ?)",
+            (request.symbol, request.target_price, request.direction, datetime.now().isoformat()),
+        )
+        await db.commit()
+    return {"status": "created", "symbol": request.symbol, "target": request.target_price}
             "confidence": ai_result["confidence"],
             "gemini": ai_result.get("gemini"),
             "groq": ai_result.get("groq"),
@@ -2292,7 +2279,7 @@ DEBUG_ENDPOINTS_ENABLED = True  # Set False for production
 
 @app.post("/api/scan")
 async def trigger_scan():
-    """DEV ONLY. Rate-limited to 1/60s. Respects Engine 11 gate."""
+    """DEV ONLY. Rate-limited to once per 60s. Respects Engine 11 gate."""
     global _last_scan_trigger
     if not DEBUG_ENDPOINTS_ENABLED:
         raise HTTPException(status_code=404, detail="Debug endpoints disabled")
@@ -2311,7 +2298,7 @@ async def trigger_scan():
 
 @app.post("/api/monitor")
 async def trigger_monitor():
-    """DEV ONLY. Rate-limited to 1/30s."""
+    """DEV ONLY. Rate-limited to once per 30s."""
     global _last_monitor_trigger
     if not DEBUG_ENDPOINTS_ENABLED:
         raise HTTPException(status_code=404, detail="Debug endpoints disabled")
