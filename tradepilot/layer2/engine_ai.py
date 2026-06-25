@@ -344,7 +344,7 @@ Respond ONLY in this JSON format:
 
 
 async def analyze_with_gemini(symbol: str, data: dict) -> Optional[dict]:
-    """Get analysis from second AI via OpenRouter (free models, no credit card)."""
+    """Get analysis from second AI via OpenRouter (free models)."""
     if not OPENROUTER_API_KEY:
         logger.warning("OPENROUTER_API_KEY not set")
         return None
@@ -352,12 +352,14 @@ async def analyze_with_gemini(symbol: str, data: dict) -> Optional[dict]:
     prompt = _build_prompt(symbol, data)
     url = "https://openrouter.ai/api/v1/chat/completions"
 
-    payload = {
-        "model": "meta-llama/llama-4-maverick:free",
-        "messages": [{"role": "user", "content": prompt}],
-        "temperature": 0.3,
-        "max_tokens": 600,
-    }
+    # Try models in order of reliability
+    models_to_try = [
+        "qwen/qwen3-30b-a3b:free",
+        "open-r1/olympiccoder-7b:free",
+        "qwen/qwen3-14b:free",
+        "nvidia/llama-3.1-nemotron-70b-instruct:free",
+        "deepseek/deepseek-chat-v3-0324:free",
+    ]
 
     headers = {
         "Authorization": f"Bearer {OPENROUTER_API_KEY}",
@@ -366,27 +368,48 @@ async def analyze_with_gemini(symbol: str, data: dict) -> Optional[dict]:
         "X-Title": "TradePilot AI",
     }
 
-    try:
-        async with aiohttp.ClientSession() as session:
-            async with session.post(url, json=payload, headers=headers, timeout=aiohttp.ClientTimeout(total=45)) as resp:
-                if resp.status != 200:
-                    body = await resp.text()
-                    logger.warning("OpenRouter returned %d: %s", resp.status, body[:200])
-                    return None
-                result = await resp.json()
+    for model in models_to_try:
+        payload = {
+            "model": model,
+            "messages": [{"role": "user", "content": prompt}],
+            "temperature": 0.3,
+            "max_tokens": 600,
+        }
 
-        text = result.get("choices", [{}])[0].get("message", {}).get("content", "")
-        if not text:
-            logger.warning("OpenRouter returned empty response")
-            return None
-        return _parse_ai_response(text, "Gemini")
+        try:
+            async with aiohttp.ClientSession() as session:
+                async with session.post(url, json=payload, headers=headers, timeout=aiohttp.ClientTimeout(total=45)) as resp:
+                    if resp.status != 200:
+                        body = await resp.text()
+                        logger.warning("OpenRouter model %s returned %d: %s", model, resp.status, body[:150])
+                        continue  # Try next model
+                    result = await resp.json()
 
-    except asyncio.TimeoutError:
-        logger.warning("OpenRouter timed out after 30s")
-        return None
-    except Exception as e:
-        logger.warning("OpenRouter failed: %s", str(e)[:150])
-        return None
+            # Check for error in response body
+            if result.get("error"):
+                logger.warning("OpenRouter model %s error: %s", model, str(result["error"])[:150])
+                continue
+
+            text = result.get("choices", [{}])[0].get("message", {}).get("content", "")
+            if not text:
+                logger.warning("OpenRouter model %s returned empty response", model)
+                continue
+
+            parsed = _parse_ai_response(text, "OpenRouter")
+            if parsed:
+                logger.info("OpenRouter analysis succeeded with model: %s", model)
+                return parsed
+            continue  # Parse failed, try next model
+
+        except asyncio.TimeoutError:
+            logger.warning("OpenRouter model %s timed out", model)
+            continue
+        except Exception as e:
+            logger.warning("OpenRouter model %s failed: %s", model, str(e)[:100])
+            continue
+
+    logger.warning("All OpenRouter models failed for %s", symbol)
+    return None
 
 
 async def analyze_with_groq(symbol: str, data: dict) -> Optional[dict]:

@@ -171,13 +171,14 @@ export default function StockDetailModal({ symbol, onClose }) {
             {/* Charges Breakdown */}
             {plan.charges_breakdown && (
               <div className="bg-dark-700 border border-dark-600 rounded-xl p-4">
-                <h3 className="text-xs font-bold text-gray-400 mb-2">Charges Breakdown</h3>
+                <h3 className="text-xs font-bold text-gray-400 mb-1">Charges Breakdown</h3>
+                <p className="text-[9px] text-gray-600 mb-2">Buy + Sell combined (round-trip)</p>
                 <div className="grid grid-cols-3 gap-1.5 text-center">
-                  <ChargeItem label="Brokerage" value={plan.charges_breakdown.brokerage} />
-                  <ChargeItem label="STT" value={plan.charges_breakdown.stt} />
-                  <ChargeItem label="Exchange" value={plan.charges_breakdown.exchange_txn} />
-                  <ChargeItem label="GST" value={plan.charges_breakdown.gst} />
-                  <ChargeItem label="Stamp" value={plan.charges_breakdown.stamp_duty} />
+                  <ChargeItem label="Brokerage" value={plan.charges_breakdown.brokerage} sublabel="Both sides" />
+                  <ChargeItem label="STT" value={plan.charges_breakdown.stt} sublabel="Sell side" />
+                  <ChargeItem label="Exchange" value={plan.charges_breakdown.exchange_txn} sublabel="Turnover" />
+                  <ChargeItem label="GST" value={plan.charges_breakdown.gst} sublabel="18% on fees" />
+                  <ChargeItem label="Stamp" value={plan.charges_breakdown.stamp_duty} sublabel="Buy side" />
                   <ChargeItem label="Total" value={plan.charges_breakdown.total} highlight />
                 </div>
               </div>
@@ -243,11 +244,12 @@ function Indicator({ label, value, color = 'text-white' }) {
   )
 }
 
-function ChargeItem({ label, value, highlight }) {
+function ChargeItem({ label, value, highlight, sublabel }) {
   return (
     <div className={`rounded-lg p-1.5 ${highlight ? 'bg-amber-500/10' : 'bg-dark-900'}`}>
       <p className={`text-[10px] font-mono font-bold ${highlight ? 'text-amber-400' : 'text-white'}`}>₹{value?.toFixed(2)}</p>
       <p className="text-[8px] text-gray-500">{label}</p>
+      {sublabel && <p className="text-[7px] text-gray-600">{sublabel}</p>}
     </div>
   )
 }

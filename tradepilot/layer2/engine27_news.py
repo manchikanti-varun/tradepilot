@@ -3,7 +3,12 @@
 Sources (free, no API key):
 - Moneycontrol RSS (top stories, market news)
 - Economic Times Markets RSS
-- NSE announcements (via RSS)
+- Livemint Markets RSS
+- NDTV Profit RSS
+- Business Standard Markets RSS
+- Zerodha Varsity Blog
+- NSE India Twitter/X (via RSS bridge)
+- TradingView Ideas (India)
 
 Output:
 - Simple plain-English summaries for the dashboard
@@ -25,6 +30,7 @@ logger = logging.getLogger(__name__)
 
 # RSS feed URLs (free, no auth)
 NEWS_FEEDS = [
+    # === MAINSTREAM MARKET NEWS ===
     {
         "name": "Moneycontrol Markets",
         "url": "https://www.moneycontrol.com/rss/marketreports.xml",
@@ -39,6 +45,131 @@ NEWS_FEEDS = [
         "name": "Moneycontrol Stocks",
         "url": "https://www.moneycontrol.com/rss/latestnews.xml",
         "category": "stocks",
+    },
+    {
+        "name": "Livemint Markets",
+        "url": "https://www.livemint.com/rss/markets",
+        "category": "market",
+    },
+    {
+        "name": "NDTV Profit",
+        "url": "https://feeds.feedburner.com/ndtvprofit-latest",
+        "category": "market",
+    },
+    {
+        "name": "Business Standard",
+        "url": "https://www.business-standard.com/rss/markets-106.rss",
+        "category": "market",
+    },
+    # === STOCK-SPECIFIC NEWS ===
+    {
+        "name": "ET Stocks",
+        "url": "https://economictimes.indiatimes.com/markets/stocks/rssfeeds/2146842.cms",
+        "category": "stocks",
+    },
+    {
+        "name": "Moneycontrol MF",
+        "url": "https://www.moneycontrol.com/rss/MFreports.xml",
+        "category": "market",
+    },
+    # === GLOBAL (affects Indian market) ===
+    {
+        "name": "Reuters Business",
+        "url": "https://www.reutersagency.com/feed/?best-sectors=business-finance&post_type=best",
+        "category": "global",
+    },
+    {
+        "name": "CNBC World",
+        "url": "https://search.cnbc.com/rs/search/combinedcms/view.xml?partnerId=wrss01&id=100727362",
+        "category": "global",
+    },
+    # === SOCIAL / COMMUNITY ===
+    {
+        "name": "TradingView India",
+        "url": "https://www.tradingview.com/feed/?sort=hot&stream=india",
+        "category": "social",
+    },
+    {
+        "name": "Zerodha Varsity",
+        "url": "https://zerodha.com/varsity/feed/",
+        "category": "education",
+    },
+    {
+        "name": "Reddit IndianStockMarket",
+        "url": "https://www.reddit.com/r/IndianStockMarket/hot.rss",
+        "category": "social",
+    },
+    {
+        "name": "Reddit IndianStreetBets",
+        "url": "https://www.reddit.com/r/IndianStreetBets/hot.rss",
+        "category": "social",
+    },
+    {
+        "name": "Reddit DalalStreetTalks",
+        "url": "https://www.reddit.com/r/DalalStreetTalks/hot.rss",
+        "category": "social",
+    },
+    {
+        "name": "Reddit Nifty50",
+        "url": "https://www.reddit.com/r/Nifty50/hot.rss",
+        "category": "social",
+    },
+    {
+        "name": "Reddit Trading India",
+        "url": "https://www.reddit.com/r/tradingindia/hot.rss",
+        "category": "social",
+    },
+    {
+        "name": "Reddit OptionsTrading IN",
+        "url": "https://www.reddit.com/r/IndianOptions/hot.rss",
+        "category": "social",
+    },
+    # === MORE FINANCIAL NEWS ===
+    {
+        "name": "Mint Economy",
+        "url": "https://www.livemint.com/rss/economy",
+        "category": "market",
+    },
+    {
+        "name": "ET Industry",
+        "url": "https://economictimes.indiatimes.com/industry/rssfeeds/13352306.cms",
+        "category": "stocks",
+    },
+    {
+        "name": "Moneycontrol IPO",
+        "url": "https://www.moneycontrol.com/rss/ipo.xml",
+        "category": "stocks",
+    },
+    {
+        "name": "Moneycontrol Commodities",
+        "url": "https://www.moneycontrol.com/rss/commodities.xml",
+        "category": "market",
+    },
+    {
+        "name": "Financial Express",
+        "url": "https://www.financialexpress.com/market/feed/",
+        "category": "market",
+    },
+    {
+        "name": "Investing.com India",
+        "url": "https://www.investing.com/rss/news_301.rss",
+        "category": "market",
+    },
+    # === GLOBAL MACRO ===
+    {
+        "name": "Bloomberg Markets",
+        "url": "https://feeds.bloomberg.com/markets/news.rss",
+        "category": "global",
+    },
+    {
+        "name": "Yahoo Finance",
+        "url": "https://finance.yahoo.com/news/rssindex",
+        "category": "global",
+    },
+    {
+        "name": "MarketWatch",
+        "url": "https://feeds.content.dowjones.io/public/rss/mw_topstories",
+        "category": "global",
     },
 ]
 
@@ -244,9 +375,19 @@ async def _fetch_feed(session: aiohttp.ClientSession, feed: dict) -> list[NewsIt
             desc_tag = entry.find("description")
             desc = desc_tag.get_text(strip=True)[:200] if desc_tag else ""
 
-            # Get link
+            # Get link — handle multiple RSS formats
+            link = None
             link_tag = entry.find("link")
-            link = link_tag.get_text(strip=True) if link_tag else None
+            if link_tag:
+                # Some feeds put URL in href attribute
+                link = link_tag.get("href") or link_tag.get_text(strip=True) or None
+            # Fallback: check for <guid> which often contains the URL
+            if not link:
+                guid_tag = entry.find("guid")
+                if guid_tag:
+                    guid_text = guid_tag.get_text(strip=True)
+                    if guid_text.startswith("http"):
+                        link = guid_text
 
             # Get publish date
             pub_tag = entry.find("pubdate") or entry.find("pubDate")

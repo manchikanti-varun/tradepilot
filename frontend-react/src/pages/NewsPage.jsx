@@ -104,7 +104,15 @@ export default function NewsPage() {
         {news?.items?.map((item, i) => (
           <div key={i} className="bg-dark-700 border border-dark-600 rounded-xl p-3">
             {/* Headline */}
-            <p className="text-sm text-white leading-relaxed">{item.title}</p>
+            {/* Headline — clickable if link exists */}
+            {item.link ? (
+              <a href={item.link} target="_blank" rel="noopener noreferrer"
+                className="text-sm text-white leading-relaxed hover:text-accent-blue transition-colors block">
+                {item.title}
+              </a>
+            ) : (
+              <p className="text-sm text-white leading-relaxed">{item.title}</p>
+            )}
 
             {/* Explanation */}
             <p className="text-[11px] text-gray-400 mt-1.5 leading-relaxed">{item.summary}</p>
@@ -117,8 +125,12 @@ export default function NewsPage() {
                 item.sentiment === 'BEARISH' ? 'bg-red-400' : 'bg-gray-500'
               }`} />
 
-              {/* Source */}
-              <span className="text-[9px] text-gray-500">{item.source}</span>
+              {/* Source with category */}
+              <span className={`text-[9px] px-1.5 py-0.5 rounded ${
+                item.source.includes('Reuters') || item.source.includes('CNBC') ? 'bg-blue-500/10 text-blue-400' :
+                item.source.includes('TradingView') || item.source.includes('Varsity') ? 'bg-purple-500/10 text-purple-400' :
+                'bg-dark-600 text-gray-500'
+              }`}>{item.source}</span>
 
               {/* Time ago */}
               {item.hours_ago !== null && (
@@ -135,11 +147,11 @@ export default function NewsPage() {
                 <span className="text-[8px] bg-red-500/15 text-red-300 px-1.5 py-0.5 rounded border border-red-500/30 font-medium">Important</span>
               )}
 
-              {/* Link */}
+              {/* Read Full Article */}
               {item.link && (
                 <a href={item.link} target="_blank" rel="noopener noreferrer"
                   className="flex items-center gap-0.5 text-[9px] text-accent-blue hover:underline ml-auto">
-                  <ExternalLink size={8} /> Read
+                  <ExternalLink size={8} /> Read full →
                 </a>
               )}
             </div>

@@ -1893,7 +1893,7 @@ async def debug_gemini_test():
         try:
             url = "https://openrouter.ai/api/v1/chat/completions"
             payload = {
-                "model": "google/gemma-4-26b-a4b-it:free",
+                "model": "qwen/qwen3-30b-a3b:free",
                 "messages": [{"role": "user", "content": "Say hello in JSON: {\"message\": \"hello\"}"}],
                 "temperature": 0.1, "max_tokens": 50,
             }
@@ -1907,7 +1907,7 @@ async def debug_gemini_test():
                         import json
                         data = json.loads(body)
                         text = data.get("choices", [{}])[0].get("message", {}).get("content", "")
-                        results["openrouter"] = {"status": "success", "model": "gemma-4-26b", "response": text[:200]}
+                        results["openrouter"] = {"status": "success", "model": "qwen3-30b-a3b", "response": text[:200]}
                     else:
                         results["openrouter"] = {"status": "error", "http_status": status, "body": body[:300]}
         except Exception as e:
