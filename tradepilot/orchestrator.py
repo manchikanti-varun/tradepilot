@@ -59,8 +59,8 @@ def now_ist() -> datetime:
 def _create_provider() -> MarketDataProvider:
     """Create the best available market data provider.
     
-    Uses Angel One SmartAPI if credentials are configured,
-    otherwise falls back to Yahoo Finance.
+    Uses Hybrid (yfinance bulk + Angel One real-time) if Angel One credentials exist,
+    otherwise falls back to Yahoo Finance only.
     """
     import os
     if all([
@@ -69,11 +69,11 @@ def _create_provider() -> MarketDataProvider:
         os.environ.get("ANGEL_PASSWORD"),
         os.environ.get("ANGEL_TOTP_SECRET"),
     ]):
-        from tradepilot.layer1.angel_provider import AngelOneProvider
-        logger.info("Using Angel One SmartAPI as primary data provider")
-        return AngelOneProvider()
+        from tradepilot.layer1.hybrid_provider import HybridProvider
+        logger.info("Using Hybrid provider: yfinance (200 stocks) + Angel One (real-time)")
+        return HybridProvider()
     else:
-        logger.info("Angel One credentials not found — using Yahoo Finance")
+        logger.info("Angel One credentials not found — using Yahoo Finance only")
         return YahooFinanceProvider()
 
 

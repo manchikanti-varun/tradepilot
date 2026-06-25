@@ -595,25 +595,109 @@ async def get_growth():
 
 @app.get("/api/news")
 async def get_news():
-    """Market news feed — simple summaries from Moneycontrol & ET."""
+    """Market news feed — with time ago, source links, and AI analysis of impact."""
     news_state = await fetch_market_news()
+    from tradepilot.layer2.engine_ai import analyze_with_gemini, analyze_with_groq
+    from datetime import datetime as dt
+    import email.utils
+
+    items_with_time = []
+    for item in news_state.items:
+        # Parse published time to compute "hours ago"
+        hours_ago = None
+        if item.published:
+            try:
+                parsed_time = email.utils.parsedate_to_datetime(item.published)
+                diff = datetime.now(parsed_time.tzinfo) - parsed_time
+                hours_ago = round(diff.total_seconds() / 3600, 1)
+            except Exception:
+                pass
+
+        items_with_time.append({
+            "title": item.title,
+            "summary": item.summary,
+            "source": item.source,
+            "sentiment": item.sentiment,
+            "impact": item.impact,
+            "hours_ago": hours_ago,
+            "link": item.link,
+            "published": item.published,
+        })
+
     return {
         "mood": news_state.overall_mood,
         "mood_score": news_state.mood_score,
         "count": len(news_state.items),
         "last_fetched": news_state.last_fetched.isoformat() if news_state.last_fetched else None,
-        "items": [
-            {
-                "title": item.title,
-                "summary": item.summary,
-                "source": item.source,
-                "sentiment": item.sentiment,
-                "impact": item.impact,
-                "published": item.published,
-            }
-            for item in news_state.items
-        ],
+        "items": items_with_time,
     }
+
+
+@app.get("/api/news/analyze")
+async def analyze_news_impact():
+    """AI analysis of today's news — how it affects the market."""
+    from tradepilot.layer2.engine_ai import analyze_with_groq
+    from tradepilot.layer2.engine27_news import _news_cache
+    import aiohttp
+
+    if not _news_cache or not _news_cache.items:
+        return {"analysis": None, "error": "No news data available"}
+
+    # Build news summary for AI
+    headlines = "\n".join([f"- {item.title} ({item.sentiment})" for item in _news_cache.items[:10]])
+
+    prompt = f"""You are an Indian stock market expert. Analyze these today's news headlines and tell me:
+1. What is the overall market sentiment?
+2. Which sectors will benefit from this news?
+3. Which sectors might get hurt?
+4. Any specific stocks mentioned that could move big?
+5. Should a trader be aggressive or cautious today?
+
+TODAY'S HEADLINES:
+{headlines}
+
+Respond in this JSON format:
+{{
+  "market_sentiment": "BULLISH" or "BEARISH" or "NEUTRAL",
+  "summary": "2-3 sentences about overall market direction based on news",
+  "sectors_positive": ["sector1", "sector2"],
+  "sectors_negative": ["sector1", "sector2"],
+  "stocks_to_watch": ["SYMBOL1", "SYMBOL2"],
+  "trader_advice": "1-2 sentences - should I be aggressive or cautious and why"
+}}"""
+
+    # Use Groq for speed
+    groq_key = os.environ.get("GROQ_API_KEY", "")
+    if not groq_key:
+        return {"analysis": None, "error": "AI not configured"}
+
+    try:
+        url = "https://api.groq.com/openai/v1/chat/completions"
+        payload = {
+            "model": "llama-3.3-70b-versatile",
+            "messages": [{"role": "user", "content": prompt}],
+            "temperature": 0.3, "max_tokens": 400,
+        }
+        headers = {"Authorization": f"Bearer {groq_key}", "Content-Type": "application/json"}
+
+        async with aiohttp.ClientSession() as session:
+            async with session.post(url, json=payload, headers=headers, timeout=aiohttp.ClientTimeout(total=15)) as resp:
+                if resp.status != 200:
+                    return {"analysis": None, "error": f"AI returned {resp.status}"}
+                result = await resp.json()
+
+        text = result.get("choices", [{}])[0].get("message", {}).get("content", "")
+        # Parse JSON
+        import json
+        start = text.find("{")
+        end = text.rfind("}") + 1
+        if start >= 0 and end > start:
+            analysis = json.loads(text[start:end])
+            return {"analysis": analysis}
+    except Exception as e:
+        return {"analysis": None, "error": str(e)[:100]}
+
+    return {"analysis": None}
 
 
 @app.get("/api/alerts")
@@ -830,6 +914,31 @@ async def get_stock_trading_plan(symbol: str):
         for _, row in candles_1d.tail(5).iterrows():
             price_history += f"  {str(row.get('timestamp', ''))[:10]}: O={row['open']:.1f} H={row['high']:.1f} L={row['low']:.1f} C={row['close']:.1f}\n"
 
+    # Get sector
+    from tradepilot.layer1.nifty_universe import get_sector_map
+    sector = get_sector_map().get(symbol, "Unknown")
+
+    # Get news context for this stock
+    news_context = "Overall market mood: Neutral"
+    brief_news_mood = "NEUTRAL"
+    try:
+        from tradepilot.layer2.engine27_news import _news_cache
+        if _news_cache:
+            brief_news_mood = _news_cache.overall_mood
+            news_context = f"Overall market mood: {_news_cache.overall_mood}"
+            if _news_cache.items:
+                stock_news = [item for item in _news_cache.items if symbol.lower() in item.title.lower() or sector.lower() in item.title.lower()]
+                if stock_news:
+                    news_context += f"\nNews about {symbol}:\n"
+                    for n in stock_news[:3]:
+                        news_context += f"- {n.title} (Sentiment: {n.sentiment})\n"
+                else:
+                    news_context += "\nTop market headlines today:\n"
+                    for n in _news_cache.items[:3]:
+                        news_context += f"- {n.title} ({n.sentiment})\n"
+    except Exception:
+        pass
+
     # Build comprehensive data package for AI
     stock_data = {
         "ltp": round(ltp, 2),
@@ -845,6 +954,7 @@ async def get_stock_trading_plan(symbol: str):
         "support": round(support, 2),
         "resistance": round(resistance, 2),
         "price_history": price_history,
+        "news_context": news_context,
     }
 
     # Let AI analyze everything
@@ -872,10 +982,6 @@ async def get_stock_trading_plan(symbol: str):
     from tradepilot.layer2.engine8_charges import calculate_angel_charges
     charges, breakdown = calculate_angel_charges(qty, entry, t1)
     net_profit = qty * (t1 - entry) - charges
-
-    # Sector
-    from tradepilot.layer1.nifty_universe import get_sector_map
-    sector = get_sector_map().get(symbol, "Unknown")
 
     return {
         "symbol": symbol,
@@ -1730,13 +1836,94 @@ async def get_eod_summary():
 
 
 @app.get("/api/screener")
-async def get_screener(timeframe: str = "1h"):
-    """KST-based multi-timeframe screener.
-    
-    Logic:
-    - Hourly: KST crossover detection (the TRIGGER)
-    - Daily: KST vs Signal trend (context)
-    - Weekly: KST vs Signal trend (context)
+async def get_screener():
+    """Screener — bullish/bearish stocks based on indicator alignment."""
+    from tradepilot.layer2.engine4_discovery import compute_ema, compute_rsi, compute_macd, compute_vwap
+    state = get_state()
+    scores = state.watchlist_scores
+    if not scores:
+        return {"bullish": [], "bearish": [], "total_scanned": 0}
+
+    bullish = []
+    bearish = []
+
+    for s in scores:
+        try:
+            # Use already-computed data from the scoring engine
+            bull_points = 0
+            bear_points = 0
+            reasons = []
+
+            # RSI
+            if s.rsi > 50:
+                bull_points += 1
+            else:
+                bear_points += 1
+
+            # MACD
+            if s.macd > 0:
+                bull_points += 1
+                reasons.append("MACD positive")
+            else:
+                bear_points += 1
+                reasons.append("MACD negative")
+
+            # Volume
+            if s.volume_ratio > 1.2:
+                bull_points += 1
+                reasons.append(f"Vol {s.volume_ratio:.1f}x")
+            elif s.volume_ratio < 0.8:
+                bear_points += 1
+
+            # Score-based (composite > 60 = momentum up)
+            if s.composite > 62:
+                bull_points += 1
+                reasons.append(f"Score {s.composite:.0f}")
+            elif s.composite < 55:
+                bear_points += 1
+                reasons.append(f"Score {s.composite:.0f}")
+
+            # LTP vs VWAP
+            if s.vwap > 0 and s.ltp > s.vwap:
+                bull_points += 1
+                reasons.append("Above VWAP")
+            elif s.vwap > 0:
+                bear_points += 1
+                reasons.append("Below VWAP")
+
+            # Determine strength
+            strength = "STRONG" if bull_points >= 4 else "MEDIUM" if bull_points >= 3 else "MILD"
+
+            stock_data = {
+                "symbol": s.symbol, "sector": s.sector, "ltp": round(s.ltp, 2),
+                "rsi": round(s.rsi, 1), "volume_ratio": round(s.volume_ratio, 1),
+                "strength": strength,
+                "ema_trend": "Bullish" if s.composite > 60 else "Bearish",
+                "macd": "Positive" if s.macd > 0 else "Negative",
+                "vwap": "Above" if s.vwap > 0 and s.ltp > s.vwap else "Below",
+                "score": s.composite, "grade": s.grade.value,
+                "reason": " + ".join(reasons[:4]) if reasons else "Mixed signals",
+            }
+
+            if bull_points >= 3:
+                bullish.append(stock_data)
+            elif bear_points >= 3:
+                bearish.append(stock_data)
+
+        except Exception:
+            continue
+
+    # Sort: strong first
+    strength_order = {"STRONG": 0, "MEDIUM": 1, "MILD": 2}
+    bullish.sort(key=lambda x: strength_order.get(x["strength"], 3))
+    bearish.sort(key=lambda x: strength_order.get(x["strength"], 3))
+
+    return {
+        "bullish": bullish[:15],
+        "bearish": bearish[:15],
+        "total_scanned": len(scores),
+        "last_scan": state.last_scan_time.isoformat() if state.last_scan_time else None,
+    }
     - Strength = alignment across all three
     """
     from tradepilot.layer2.engine4_discovery import compute_ema, compute_rsi
@@ -1845,6 +2032,96 @@ async def get_screener(timeframe: str = "1h"):
     }
 
 
+@app.get("/api/screener/timeframe")
+async def get_screener_timeframe(tf: str = "1h"):
+    """Timeframe-based screener + KST crossover signals."""
+    from tradepilot.layer2.engine4_discovery import compute_ema, compute_rsi, compute_macd
+    import pandas as pd
+    state = get_state()
+    scores = state.watchlist_scores
+    if not scores:
+        return {"bullish": [], "bearish": [], "kst_signals": [], "timeframe": tf, "total_scanned": 0}
+
+    now = datetime.now()
+    tf_map = {"5m": 5, "15m": 5, "1h": 15, "1d": 60, "1w": 90}
+    days = tf_map.get(tf, 15)
+    interval = tf if tf != "1w" else "1d"
+
+    bullish = []
+    bearish = []
+    kst_signals = []
+
+    for s in scores[:40]:
+        try:
+            candles = await state.market_data.get_candles(s.symbol, interval, now - timedelta(days=days), now)
+            if candles.empty or len(candles) < 20:
+                continue
+
+            closes = candles["close"]
+            ltp = float(closes.iloc[-1])
+            prev = float(closes.iloc[-2]) if len(closes) >= 2 else ltp
+            change_pct = ((ltp - prev) / prev * 100) if prev > 0 else 0
+            if tf == "1w" and len(closes) >= 5:
+                change_pct = ((ltp - float(closes.iloc[-5])) / float(closes.iloc[-5]) * 100)
+
+            rsi = compute_rsi(closes)
+            ema9 = compute_ema(closes, 9)
+            ema21 = compute_ema(closes, 21)
+            _, _, macd_hist = compute_macd(closes)
+
+            bull = int(ema9 > ema21) + int(macd_hist > 0) + int(rsi > 50)
+            bear = 3 - bull
+            strength = "STRONG" if bull == 3 else "MEDIUM" if bull == 2 else "MILD"
+
+            stock_data = {
+                "symbol": s.symbol, "sector": s.sector, "ltp": round(ltp, 2),
+                "change_pct": round(change_pct, 2), "rsi": round(rsi, 1),
+                "ema_trend": "Bullish" if ema9 > ema21 else "Bearish",
+                "macd": "Positive" if macd_hist > 0 else "Negative",
+                "strength": strength, "grade": s.grade.value,
+            }
+
+            if bull >= 2:
+                bullish.append(stock_data)
+            else:
+                bearish.append(stock_data)
+
+            # KST crossover detection
+            if len(closes) >= 30:
+                kst, sig = _compute_kst_indicator(closes)
+                if len(kst) >= 2:
+                    if float(kst.iloc[-2]) <= float(sig.iloc[-2]) and float(kst.iloc[-1]) > float(sig.iloc[-1]):
+                        kst_signals.append({**stock_data, "kst_direction": "BULLISH",
+                            "kst_reason": f"KST crossed above signal — bullish momentum"})
+                    elif float(kst.iloc[-2]) >= float(sig.iloc[-2]) and float(kst.iloc[-1]) < float(sig.iloc[-1]):
+                        kst_signals.append({**stock_data, "kst_direction": "BEARISH",
+                            "kst_reason": f"KST crossed below signal — bearish momentum"})
+
+        except Exception:
+            continue
+
+    bullish.sort(key=lambda x: x["change_pct"], reverse=True)
+    bearish.sort(key=lambda x: x["change_pct"])
+
+    return {
+        "bullish": bullish[:15], "bearish": bearish[:15],
+        "kst_signals": kst_signals[:10], "timeframe": tf,
+        "total_scanned": len(scores),
+        "last_scan": state.last_scan_time.isoformat() if state.last_scan_time else None,
+    }
+
+
+def _compute_kst_indicator(closes):
+    """KST (Know Sure Thing) + signal line."""
+    import pandas as pd
+    c = pd.Series(closes.values)
+    kst = pd.Series(0.0, index=c.index)
+    for roc_p, sma_p, w in zip([10, 15, 20, 30], [10, 10, 10, 15], [1, 2, 3, 4]):
+        if len(c) <= roc_p:
+            continue
+        roc = ((c - c.shift(roc_p)) / c.shift(roc_p)) * 100
+        kst = kst + (roc.rolling(window=min(sma_p, len(c) - roc_p)).mean().fillna(0) * w)
+    return kst, kst.rolling(window=9).mean()
 def _compute_kst(closes) -> tuple:
     """Compute KST (Know Sure Thing) indicator and its signal line.
     

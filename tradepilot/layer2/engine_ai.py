@@ -24,8 +24,9 @@ GROQ_API_KEY = os.environ.get("GROQ_API_KEY", "")
 
 
 def _build_prompt(symbol: str, data: dict) -> str:
-    """Build comprehensive analysis prompt — AI sees everything and decides."""
+    """Build comprehensive analysis prompt — AI sees everything including news."""
     price_history = data.get('price_history', 'Not available')
+    news_context = data.get('news_context', 'No recent news available for this stock.')
 
     return f"""You are a professional intraday trader analyzing NSE India stocks. Give a complete trading analysis.
 
@@ -52,14 +53,18 @@ KEY LEVELS:
 LAST 5 DAYS:
 {price_history}
 
+NEWS & MARKET CONTEXT:
+{news_context}
+
 ANALYZE THIS STOCK COMPLETELY. Consider:
 1. Is the trend bullish, bearish, or sideways?
-2. Is this a good time to enter or should I wait?
-3. Where exactly should I buy?
-4. Where should I place my stop loss?
-5. What are realistic profit targets for today?
-6. What is the risk-reward ratio?
-7. Any warnings or red flags?
+2. How is news/sentiment affecting this stock right now?
+3. Is this a good time to enter or should I wait?
+4. Where exactly should I buy?
+5. Where should I place my stop loss?
+6. What are realistic profit targets for today?
+7. What is the risk-reward ratio?
+8. Any warnings or red flags from news or technicals?
 
 Respond ONLY in this JSON format:
 {{
@@ -70,35 +75,48 @@ Respond ONLY in this JSON format:
   "target_1": first target price,
   "target_2": second target price,
   "risk_reward": number like 1.5 or 2.0,
-  "reasoning": "3-4 sentences explaining your complete analysis in simple language. Why buy/wait, what the chart is showing, key levels to watch, and any risks."
+  "reasoning": "3-4 sentences explaining your complete analysis. Include how news affects the stock, what the chart shows, key levels to watch, and any risks. Write in simple English that anyone can understand."
 }}"""
 
 
 async def analyze_with_gemini(symbol: str, data: dict) -> Optional[dict]:
     """Get analysis from Gemini AI."""
     if not GEMINI_API_KEY:
+        logger.warning("Gemini API key not set")
         return None
 
     prompt = _build_prompt(symbol, data)
-    url = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key={GEMINI_API_KEY}"
+    url = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key={GEMINI_API_KEY}"
 
     payload = {
         "contents": [{"parts": [{"text": prompt}]}],
-        "generationConfig": {"temperature": 0.3, "maxOutputTokens": 500},
+        "generationConfig": {"temperature": 0.3, "maxOutputTokens": 600},
     }
 
     try:
         async with aiohttp.ClientSession() as session:
-            async with session.post(url, json=payload, timeout=aiohttp.ClientTimeout(total=15)) as resp:
+            async with session.post(url, json=payload, timeout=aiohttp.ClientTimeout(total=20)) as resp:
                 if resp.status != 200:
-                    logger.warning("Gemini API returned %d", resp.status)
+                    body = await resp.text()
+                    logger.warning("Gemini API returned %d: %s", resp.status, body[:200])
                     return None
                 result = await resp.json()
 
-        text = result.get("candidates", [{}])[0].get("content", {}).get("parts", [{}])[0].get("text", "")
-        # Extract JSON from response
+        # Extract text from Gemini response
+        candidates = result.get("candidates", [])
+        if not candidates:
+            logger.warning("Gemini returned no candidates")
+            return None
+        text = candidates[0].get("content", {}).get("parts", [{}])[0].get("text", "")
+        if not text:
+            logger.warning("Gemini returned empty text")
+            return None
+
         return _parse_ai_response(text, "Gemini")
 
+    except asyncio.TimeoutError:
+        logger.warning("Gemini timed out")
+        return None
     except Exception as e:
         logger.warning("Gemini analysis failed: %s", str(e)[:100])
         return None

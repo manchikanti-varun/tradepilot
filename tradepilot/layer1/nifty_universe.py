@@ -43,46 +43,65 @@ _NSE_HEADERS = {
 
 
 async def fetch_nifty200_from_nse() -> list[StockInfo]:
-    """Fetch live Nifty 200 constituents from NSE website."""
+    """Fetch live Nifty 200 + F&O stocks from NSE — best intraday universe."""
     stocks = []
+    seen_symbols = set()
+
     try:
         async with aiohttp.ClientSession(headers=_NSE_HEADERS) as session:
-            # First hit the main page to get cookies
+            # First hit main page for cookies
             async with session.get("https://www.nseindia.com", timeout=aiohttp.ClientTimeout(total=10)) as resp:
-                if resp.status != 200:
-                    logger.warning("NSE main page returned %d", resp.status)
+                pass
 
-            # Now fetch Nifty 200 constituents
-            url = "https://www.nseindia.com/api/equity-stockIndices?index=NIFTY%20200"
-            async with session.get(url, timeout=aiohttp.ClientTimeout(total=15)) as resp:
-                if resp.status != 200:
-                    logger.warning("NSE Nifty 200 API returned %d", resp.status)
-                    return []
-                data = await resp.json()
+            # Fetch Nifty 200
+            try:
+                url = "https://www.nseindia.com/api/equity-stockIndices?index=NIFTY%20200"
+                async with session.get(url, timeout=aiohttp.ClientTimeout(total=15)) as resp:
+                    if resp.status == 200:
+                        data = await resp.json()
+                        for item in data.get("data", []):
+                            symbol = item.get("symbol", "")
+                            if not symbol or symbol in ("NIFTY 200", "NIFTY 50"):
+                                continue
+                            if symbol not in seen_symbols:
+                                seen_symbols.add(symbol)
+                                stocks.append(StockInfo(
+                                    symbol=symbol,
+                                    name=item.get("companyName", symbol),
+                                    sector=item.get("industry", "Unknown"),
+                                    index="Nifty200",
+                                ))
+            except Exception as e:
+                logger.warning("Nifty 200 fetch failed: %s", str(e)[:80])
 
-        if not data or "data" not in data:
-            logger.warning("NSE Nifty 200 response has no 'data' field")
-            return []
-
-        for item in data["data"]:
-            symbol = item.get("symbol", "")
-            if not symbol or symbol == "NIFTY 200":
-                continue
-            stocks.append(StockInfo(
-                symbol=symbol,
-                name=item.get("companyName", symbol),
-                sector=item.get("industry", "Unknown"),
-                index="Nifty200",
-            ))
-
-        logger.info("Fetched %d stocks from NSE Nifty 200", len(stocks))
-        return stocks
+            # Fetch F&O stocks (most liquid, intraday-friendly)
+            try:
+                url = "https://www.nseindia.com/api/equity-stockIndices?index=SECURITIES%20IN%20F%26O"
+                async with session.get(url, timeout=aiohttp.ClientTimeout(total=15)) as resp:
+                    if resp.status == 200:
+                        data = await resp.json()
+                        for item in data.get("data", []):
+                            symbol = item.get("symbol", "")
+                            if not symbol or symbol.startswith("NIFTY"):
+                                continue
+                            if symbol not in seen_symbols:
+                                seen_symbols.add(symbol)
+                                stocks.append(StockInfo(
+                                    symbol=symbol,
+                                    name=item.get("companyName", symbol),
+                                    sector=item.get("industry", "Unknown"),
+                                    index="FnO",
+                                ))
+            except Exception as e:
+                logger.warning("F&O list fetch failed: %s", str(e)[:80])
 
     except asyncio.TimeoutError:
-        logger.warning("NSE Nifty 200 fetch timed out")
+        logger.warning("NSE fetch timed out")
     except Exception as e:
-        logger.warning("NSE Nifty 200 fetch failed: %s", str(e)[:100])
-    return []
+        logger.warning("NSE fetch failed: %s", str(e)[:100])
+
+    logger.info("Fetched %d stocks from NSE (Nifty200 + F&O)", len(stocks))
+    return stocks
 
 
 async def save_universe_to_db(stocks: list[StockInfo]):

@@ -74,23 +74,46 @@ export default function StockDetailModal({ symbol, onClose }) {
               const VIcon = v.icon
               return (
                 <div className={`border rounded-xl p-4 ${v.bg}`}>
-                  <div className="flex items-center gap-2 mb-2">
-                    <Brain size={14} className="text-purple-400" />
-                    <span className="text-[10px] uppercase tracking-wider text-purple-400 font-bold">AI Analysis</span>
+                  {/* Final Verdict */}
+                  <div className="flex items-center gap-2 mb-3">
+                    <VIcon size={18} className={v.color} />
+                    <span className={`text-sm font-bold ${v.color}`}>{v.label}</span>
                     <span className={`text-[9px] font-bold px-1.5 py-0.5 rounded ml-auto ${
                       plan.ai_analysis.confidence === 'HIGH' ? 'bg-green-500/20 text-green-400' :
                       plan.ai_analysis.confidence === 'MEDIUM' ? 'bg-accent-blue/20 text-accent-blue' :
                       'bg-dark-600 text-gray-500'
-                    }`}>{plan.ai_analysis.confidence}</span>
+                    }`}>{plan.ai_analysis.confidence} confidence</span>
                   </div>
-                  <div className="flex items-center gap-2 mb-2">
-                    <VIcon size={16} className={v.color} />
-                    <span className={`text-sm font-bold ${v.color}`}>{v.label}</span>
+
+                  {/* Gemini Opinion */}
+                  <div className="bg-dark-900/50 rounded-lg p-2.5 mb-2">
+                    <div className="flex items-center gap-1.5 mb-1">
+                      <div className="w-3 h-3 rounded-full bg-blue-500" />
+                      <span className="text-[9px] font-bold text-blue-400">GEMINI</span>
+                      {plan.ai_analysis.gemini_says
+                        ? <span className="text-[9px] text-gray-500 ml-auto">responded</span>
+                        : <span className="text-[9px] text-red-400 ml-auto">unavailable</span>
+                      }
+                    </div>
+                    <p className="text-[10px] text-gray-300 leading-relaxed">
+                      {plan.ai_analysis.gemini_says || "Gemini did not respond — using Groq only"}
+                    </p>
                   </div>
-                  {/* AI Reasoning */}
-                  {plan.ai_analysis.reasoning?.map((r, i) => (
-                    <p key={i} className="text-xs text-gray-300 leading-relaxed mt-1.5">{r}</p>
-                  ))}
+
+                  {/* Groq Opinion */}
+                  <div className="bg-dark-900/50 rounded-lg p-2.5">
+                    <div className="flex items-center gap-1.5 mb-1">
+                      <div className="w-3 h-3 rounded-full bg-orange-500" />
+                      <span className="text-[9px] font-bold text-orange-400">GROQ</span>
+                      {plan.ai_analysis.groq_says
+                        ? <span className="text-[9px] text-gray-500 ml-auto">responded</span>
+                        : <span className="text-[9px] text-red-400 ml-auto">unavailable</span>
+                      }
+                    </div>
+                    <p className="text-[10px] text-gray-300 leading-relaxed">
+                      {plan.ai_analysis.groq_says || "Groq did not respond — using Gemini only"}
+                    </p>
+                  </div>
                 </div>
               )
             })()}

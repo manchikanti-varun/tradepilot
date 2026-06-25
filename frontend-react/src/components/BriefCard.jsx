@@ -22,10 +22,19 @@ export default function BriefCard({ brief }) {
   let expectedRange = { min: 0, max: 0 }
 
   if (riskMode === 'HARD_STOP') {
-    investPct = 0
-    investAmount = 0
-    riskLevel = 'HIGH'
-    suggestion = "Don't trade today. Risk is too high. Protect your capital."
+    // Check if it's just time-based (after market close) or actual danger
+    const isTimeStop = brief.risk_state?.reason_if_not_go?.includes('15:10') || brief.risk_state?.reason_if_not_go?.includes('after')
+    if (isTimeStop) {
+      investPct = 0
+      investAmount = 0
+      riskLevel = 'LOW'
+      suggestion = "Market is closed. Plan for tomorrow — review today's top picks."
+    } else {
+      investPct = 0
+      investAmount = 0
+      riskLevel = 'HIGH'
+      suggestion = "Risk manager halted trading. Wait for conditions to improve."
+    }
   } else if (vix > 22) {
     investPct = 0
     investAmount = 0

@@ -311,8 +311,8 @@ async def build_watchlist(
 
     all_instruments = await market_data.get_instrument_list()
 
-    # Use all instruments from universe (up to 100 for scoring — balance speed vs coverage)
-    return all_instruments[:100]
+    # Use all instruments from universe (full 250 stocks — yfinance handles bulk)
+    return all_instruments[:250]
 
 
 async def scan_and_score(
