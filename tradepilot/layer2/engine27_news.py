@@ -85,7 +85,7 @@ _CACHE_TTL = timedelta(minutes=10)
 
 
 def _compute_sentiment(text: str) -> tuple[str, int]:
-    """Simple keyword-based sentiment. Returns (label, score 0-100)."""
+    """Keyword-based sentiment (fallback). Returns (label, score 0-100)."""
     text_lower = text.lower()
     bull_count = sum(1 for w in BULLISH_WORDS if w in text_lower)
     bear_count = sum(1 for w in BEARISH_WORDS if w in text_lower)
@@ -282,7 +282,7 @@ async def _fetch_feed(session: aiohttp.ClientSession, feed: dict) -> list[NewsIt
 
 
 async def fetch_market_news() -> MarketNewsState:
-    """Fetch news from all sources. Returns cached if fresh."""
+    """Fetch news from all sources. Uses AI for sentiment when available, falls back to keywords."""
     global _news_cache
 
     if _news_cache and _news_cache.last_fetched:
@@ -316,12 +316,56 @@ async def fetch_market_news() -> MarketNewsState:
             seen_titles.add(title_key)
             unique_items.append(item)
 
+    # --- AI SENTIMENT ENHANCEMENT ---
+    # Try AI-powered sentiment analysis for more accurate scoring
+    try:
+        from tradepilot.layer2.engine_ai import ai_sentiment_batch
+        headlines = [item.title for item in unique_items[:15]]
+        ai_result = await ai_sentiment_batch(headlines)
+
+        if ai_result and "scores" in ai_result:
+            scores_list = ai_result["scores"]
+            for i, item in enumerate(unique_items[:len(scores_list)]):
+                if i < len(scores_list):
+                    try:
+                        score = int(scores_list[i])
+                        score = max(10, min(90, score))
+                        item.sentiment_score = score
+                        if score >= 60:
+                            item.sentiment = "BULLISH"
+                        elif score <= 40:
+                            item.sentiment = "BEARISH"
+                        else:
+                            item.sentiment = "NEUTRAL"
+                    except (ValueError, TypeError):
+                        pass  # Keep keyword-based score
+
+            # Use AI overall mood if available
+            if ai_result.get("overall_mood"):
+                ai_mood = ai_result["overall_mood"]
+                ai_mood_score = ai_result.get("mood_score", 50)
+            else:
+                ai_mood = None
+                ai_mood_score = None
+
+            logger.info("AI sentiment applied to %d headlines", min(len(scores_list), len(unique_items)))
+        else:
+            ai_mood = None
+            ai_mood_score = None
+    except Exception as e:
+        logger.debug("AI sentiment unavailable, using keyword fallback: %s", str(e)[:60])
+        ai_mood = None
+        ai_mood_score = None
+
     # Sort by impact first (HIGH > MEDIUM > LOW), then by market category
     impact_order = {"HIGH": 0, "MEDIUM": 1, "LOW": 2}
     unique_items.sort(key=lambda x: (impact_order.get(x.impact, 2), 0 if x.category == "market" else 1))
 
-    # Compute overall mood
-    if unique_items:
+    # Compute overall mood (AI-enhanced or fallback to average)
+    if ai_mood and ai_mood_score:
+        mood = ai_mood
+        avg_score = ai_mood_score
+    elif unique_items:
         avg_score = sum(i.sentiment_score for i in unique_items) / len(unique_items)
         if avg_score >= 58:
             mood = "BULLISH"

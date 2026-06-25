@@ -1,6 +1,7 @@
 """Engine 26: Morning Brief — synthesizes "here's where things stand" before market open.
 
-Runs: 08:45 AM IST daily. MVP-LITE mode (Phase 0): capital + watchlist + risk only.
+Runs: 08:45 AM IST daily. AI-enhanced: generates a conversational brief when AI is available.
+Falls back to structured data-only brief when AI is unavailable.
 """
 
 from dataclasses import dataclass, field
@@ -32,6 +33,7 @@ class MorningBrief:
     watchlist_summary: dict
     risk_state: dict
     one_line_summary: str
+    ai_summary: Optional[str] = None  # AI-generated conversational brief
     # Phase 1+ fields (None in MVP-lite)
     event_calendar_today: Optional[list[dict]] = None
     yesterday_recap: Optional[dict] = None
@@ -48,9 +50,11 @@ def build_morning_brief(
     yesterday_pnl: Optional[float] = None,
     yesterday_charge_drag: Optional[float] = None,
     yesterday_verdict: Optional[str] = None,
+    # AI-generated summary
+    ai_summary: Optional[str] = None,
 ) -> MorningBrief:
     """
-    Build the morning brief. MVP-lite: only capital, watchlist, risk, summary.
+    Build the morning brief. AI-enhanced when ai_summary is provided.
     """
     today = datetime.now().strftime("%Y-%m-%d")
 
@@ -91,7 +95,7 @@ def build_morning_brief(
         "trades_remaining_today": trades_remaining,
     }
 
-    # One-line summary (MVP-lite: no events/coach references)
+    # One-line summary
     tier_label = f"Tier {growth_state.current_tier.value}"
     progress = f"{growth_state.progress_pct_to_next_tier:.0f}% to Tier {_next_tier_letter(growth_state.current_tier)}"
     candidates = f"{len(watchlist_scores)} candidates today"
@@ -131,6 +135,7 @@ def build_morning_brief(
         watchlist_summary=watchlist_summary,
         risk_state=risk_state,
         one_line_summary=one_line,
+        ai_summary=ai_summary,
         event_calendar_today=event_calendar,
         yesterday_recap=yesterday_recap,
     )

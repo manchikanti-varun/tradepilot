@@ -50,7 +50,7 @@ class SelfAuditReport:
 
 async def run_self_audit(lookback_days: int = 14) -> SelfAuditReport:
     """
-    Weekly loss classification. Forced-choice: each loss gets ONE primary cause.
+    Weekly loss classification. Uses AI for each loss when available, falls back to rules.
     """
     if not ENABLE_ENGINE20_SELF_AUDIT:
         return SelfAuditReport(
@@ -66,7 +66,7 @@ async def run_self_audit(lookback_days: int = 14) -> SelfAuditReport:
         rows = await db.execute(
             """SELECT id, ticker, net_pnl, exit_reason, hold_duration_min,
                 composite_score, grade, sector_rank_at_entry, market_mode,
-                charge_pct_of_gross
+                charge_pct_of_gross, entry_price, exit_price
             FROM trades WHERE status = 'CLOSED' AND was_profitable = 0
             AND date >= ? AND date <= ?
             ORDER BY date DESC""",
@@ -88,10 +88,29 @@ async def run_self_audit(lookback_days: int = 14) -> SelfAuditReport:
                 all_fixes=[], note="Need more data",
             )
 
-        # Classify each loss
+        # --- AI-ENHANCED CLASSIFICATION ---
+        # Try AI for each loss (up to 10 to stay within rate limits)
+        ai_classifications = {}
+        try:
+            from tradepilot.layer2.engine_ai import ai_classify_loss
+            for loss in losses[:10]:
+                ai_result = await ai_classify_loss(loss)
+                if ai_result and ai_result.get("primary_cause") in LOSS_CAUSES:
+                    ai_classifications[loss["id"]] = ai_result
+        except Exception as e:
+            logger.debug("AI loss classification unavailable: %s", str(e)[:60])
+
+        # Classify each loss (AI if available, else rules)
         breakdown = {cause: 0 for cause in LOSS_CAUSES}
+        ai_fixes = []
         for loss in losses:
-            cause = _classify_loss(loss)
+            if loss["id"] in ai_classifications:
+                cause = ai_classifications[loss["id"]]["primary_cause"]
+                fix = ai_classifications[loss["id"]].get("fix")
+                if fix:
+                    ai_fixes.append(fix)
+            else:
+                cause = _classify_loss(loss)
             breakdown[cause] += 1
 
         # Percentages
@@ -99,7 +118,20 @@ async def run_self_audit(lookback_days: int = 14) -> SelfAuditReport:
 
         # Top cause
         top_cause = max(breakdown, key=breakdown.get)
-        top_fix = _suggest_fix(top_cause)
+
+        # Use AI-generated fixes if available, otherwise use template fixes
+        if ai_fixes:
+            # Deduplicate and take top 3
+            unique_fixes = list(dict.fromkeys(ai_fixes))[:3]
+            top_fix = unique_fixes[0] if unique_fixes else _suggest_fix(top_cause)
+            all_fixes = unique_fixes
+        else:
+            top_fix = _suggest_fix(top_cause)
+            all_fixes = [_suggest_fix(c) for c in LOSS_CAUSES if breakdown[c] > 0]
+
+        note = f"Analyzed {total_losses} losses over {lookback_days} days"
+        if ai_classifications:
+            note += f" ({len(ai_classifications)} AI-classified)"
 
         return SelfAuditReport(
             week_start=start.isoformat(),
@@ -110,13 +142,14 @@ async def run_self_audit(lookback_days: int = 14) -> SelfAuditReport:
             breakdown_pct={k: v for k, v in breakdown_pct.items() if v > 0},
             top_cause=top_cause,
             top_actionable_fix=top_fix,
-            all_fixes=[_suggest_fix(c) for c in LOSS_CAUSES if breakdown[c] > 0],
-            note=f"Analyzed {total_losses} losses over {lookback_days} days",
+            all_fixes=all_fixes,
+            note=note,
         )
 
 
 def _classify_loss(trade: dict) -> str:
-    """Classify a single loss into its primary cause (forced-choice)."""
+    """Classify a single loss into its primary cause (forced-choice).
+    This is the synchronous fallback. AI classification is done in run_self_audit."""
     charge_pct = trade.get("charge_pct_of_gross") or 0
     hold_min = trade.get("hold_duration_min") or 0
     grade = trade.get("grade") or ""

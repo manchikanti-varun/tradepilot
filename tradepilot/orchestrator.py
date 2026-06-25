@@ -459,6 +459,19 @@ async def _run_position_monitor_inner():
         market_data=state.market_data, news_sentiment_at_entry=55.0,
         sector_was_top_at_entry=trade.sector_was_top_at_entry,
         avoid_sectors=AVOID_SECTORS,
+        # AI context
+        entry_price=trade.entry_price,
+        current_ltp=current_ltp,
+        pnl=current_ltp - trade.entry_price,
+        hold_min=(now_ist() - trade.entry_time).total_seconds() / 60 if trade.entry_time else 0,
+        stop_price=stop,
+        peak_price=peak,
+        rsi=rsi,
+        macd=macd_hist,
+        volume_ratio=volume_ratio,
+        above_vwap=current_ltp > vwap,
+        ema_bullish=ema9 > compute_ema(closes, 21),
+        market_mode=state.market_mode.value,
     )
     state.reeval_result = reeval
 
@@ -688,12 +701,53 @@ async def _generate_morning_brief_inner() -> MorningBrief:
         except Exception:
             pass
 
+    # --- AI-ENHANCED MORNING BRIEF ---
+    ai_summary = None
+    try:
+        from tradepilot.layer2.engine_ai import ai_morning_brief
+        from tradepilot.layer2.engine27_news import _news_cache
+
+        # Get news mood
+        news_mood = "NEUTRAL"
+        if _news_cache and _news_cache.overall_mood:
+            news_mood = _news_cache.overall_mood
+
+        # Get VIX
+        vix = 14.0
+        try:
+            vix = await state.market_data.get_vix()
+        except Exception:
+            pass
+
+        # Top sectors from scores
+        sector_counts: dict[str, int] = {}
+        for s in scores:
+            sector_counts[s.sector] = sector_counts.get(s.sector, 0) + 1
+        top_sectors = sorted(sector_counts, key=sector_counts.get, reverse=True)[:3]
+
+        ai_summary = await ai_morning_brief({
+            "capital": growth.current_capital,
+            "tier": growth.current_tier.value,
+            "progress_pct": growth.progress_pct_to_next_tier,
+            "risk_gate": risk.gate.value,
+            "candidates": len(scores),
+            "top_sectors": ", ".join(top_sectors) if top_sectors else "mixed",
+            "news_mood": news_mood,
+            "vix": vix,
+            "yesterday_pnl": yesterday_pnl or 0,
+            "yesterday_drag": yesterday_drag or 0,
+            "events": ", ".join([e.get("name", "") for e in (events_today or [])]) or "None",
+        })
+    except Exception as e:
+        logger.debug("AI morning brief unavailable: %s", str(e)[:60])
+
     brief = build_morning_brief(
         growth_state=growth, watchlist_scores=scores,
         risk_gate=risk.gate, risk_reason=risk.reason,
         trades_remaining=risk.trades_remaining,
         events_today=events_today, yesterday_pnl=yesterday_pnl,
         yesterday_charge_drag=yesterday_drag, yesterday_verdict=yesterday_verdict,
+        ai_summary=ai_summary,
     )
     state.morning_brief = brief
     logger.info("Morning brief generated: %s", brief.one_line_summary[:80])

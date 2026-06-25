@@ -1,8 +1,9 @@
 """FastAPI application — production-ready with proper lifespan, validation, logging."""
 
+import os
 import time
 import logging
-from datetime import datetime, date
+from datetime import datetime, date, timedelta
 from typing import Optional
 from pathlib import Path
 from contextlib import asynccontextmanager
@@ -171,6 +172,7 @@ async def get_morning_brief():
         "watchlist_summary": brief.watchlist_summary,
         "risk_state": brief.risk_state,
         "one_line_summary": brief.one_line_summary,
+        "ai_summary": brief.ai_summary,
         "vix": round(vix, 2),
         "news_mood": news_mood,
         "market_outlook": _get_market_outlook(vix, news_mood),
@@ -281,6 +283,7 @@ async def get_position():
             "action": state.reeval_result.action,
             "score": state.reeval_result.re_entry_score,
             "reason": state.reeval_result.reason,
+            "ai_reasoning": state.reeval_result.ai_reasoning,
         } if state.reeval_result else None,
     }
 
@@ -836,7 +839,6 @@ async def get_signal_history(limit: int = 50):
 @app.get("/api/chart/{symbol}")
 async def get_chart_data(symbol: str, interval: str = "5m"):
     """Get candlestick data for charting."""
-    from datetime import timedelta
     state = get_state()
     now = datetime.now()
 
@@ -868,7 +870,6 @@ async def get_chart_data(symbol: str, interval: str = "5m"):
 @app.get("/api/stock/{symbol}/plan")
 async def get_stock_trading_plan(symbol: str):
     """100% AI-driven stock analysis. Feeds all data to AI, returns its verdict."""
-    from datetime import timedelta
     from tradepilot.layer2.engine4_discovery import (
         compute_rsi, compute_vwap, compute_macd, compute_ema, compute_atr
     )
@@ -1018,185 +1019,9 @@ async def get_stock_trading_plan(symbol: str):
     }
 
 
-@app.get("/api/stats/time-performance")
-async def get_time_performance():
-    """P&L by hour of entry — find your best trading times."""
-    from tradepilot.database import get_db
-    async with get_db() as db:
-        rows = await db.execute(
-            """SELECT entry_time, net_pnl, was_profitable
-            FROM trades WHERE status = 'CLOSED' AND entry_time IS NOT NULL"""
-        )
-        hourly = {}
-        async for row in rows:
-            try:
-                hour = int(row["entry_time"][11:13])
-                if hour not in hourly:
-                    hourly[hour] = {"trades": 0, "wins": 0, "pnl": 0}
-                hourly[hour]["trades"] += 1
-                hourly[hour]["pnl"] += row["net_pnl"] or 0
-                if row["was_profitable"]:
-                    hourly[hour]["wins"] += 1
-            except (ValueError, IndexError, TypeError):
-                continue
-    result = []
-    for h in range(9, 16):
-        data = hourly.get(h, {"trades": 0, "wins": 0, "pnl": 0})
-        wr = (data["wins"] / data["trades"] * 100) if data["trades"] > 0 else 0
-        result.append({"hour": h, "label": f"{h}:00", "trades": data["trades"],
-                       "wins": data["wins"], "pnl": round(data["pnl"], 2), "win_rate": round(wr, 1)})
-    return {"hours": result}
-
-
 # ═══════════════════════════════════════════════════════════════
 # FEATURES 1-24: FULL TRADING TERMINAL ENDPOINTS
 # ═══════════════════════════════════════════════════════════════
-
-@app.get("/api/position/live-pnl")
-async def get_live_pnl():
-    """Live P&L for active position."""
-    state = get_state()
-    trade = state.active_trade
-    if not trade:
-        return {"active": False}
-    try:
-        ltp = await state.market_data.get_ltp(trade.ticker)
-    except Exception:
-        ltp = trade.entry_price
-    from tradepilot.layer2.engine8_charges import calculate_angel_charges
-    gross = trade.qty * (ltp - trade.entry_price)
-    charges, _ = calculate_angel_charges(trade.qty, trade.entry_price, ltp)
-    net = gross - charges
-    pct = (net / trade.capital_used * 100) if trade.capital_used > 0 else 0
-    return {"active": True, "ticker": trade.ticker, "ltp": ltp,
-            "entry_price": trade.entry_price, "qty": trade.qty,
-            "gross_pnl": round(gross, 2), "charges": round(charges, 2),
-            "net_pnl": round(net, 2), "pnl_pct": round(pct, 2), "if_exit_now": round(net, 2)}
-
-
-@app.get("/api/market/premarket")
-async def get_premarket():
-    """Pre-market scanner — gap up/down stocks."""
-    state = get_state()
-    scores = state.watchlist_scores
-    if not scores:
-        return {"gap_ups": [], "gap_downs": []}
-    gaps = []
-    for s in scores[:30]:
-        try:
-            candles = await state.market_data.get_candles(s.symbol, "1d", datetime.now() - timedelta(days=3), datetime.now())
-            if candles.empty or len(candles) < 2:
-                continue
-            prev_close = float(candles["close"].iloc[-2])
-            curr = s.ltp
-            gap_pct = ((curr - prev_close) / prev_close * 100) if prev_close > 0 else 0
-            gaps.append({"symbol": s.symbol, "sector": s.sector, "prev_close": round(prev_close, 1),
-                         "current": round(curr, 1), "gap_pct": round(gap_pct, 2)})
-        except Exception:
-            continue
-    gap_ups = sorted([g for g in gaps if g["gap_pct"] > 0.3], key=lambda x: x["gap_pct"], reverse=True)[:5]
-    gap_downs = sorted([g for g in gaps if g["gap_pct"] < -0.3], key=lambda x: x["gap_pct"])[:5]
-    return {"gap_ups": gap_ups, "gap_downs": gap_downs}
-
-
-@app.post("/api/alerts/price")
-async def create_price_alert(request: PriceAlertRequest):
-    """Create price alert."""
-    from tradepilot.database import get_db
-    async with get_db() as db:
-        await db.execute(
-            "INSERT INTO price_alerts (symbol, target_price, direction, created_at) VALUES (?, ?, ?, ?)",
-            (request.symbol, request.target_price, request.direction, datetime.now().isoformat()),
-        )
-        await db.commit()
-    return {"status": "created", "symbol": request.symbol, "target": request.target_price}
-
-
-# Old stock plan code removed — AI analysis above handles everything
-
-
-@app.get("/api/stats/time-performance")
-async def get_time_performance():
-    """P&L by hour of entry — find your best trading times."""
-    from tradepilot.database import get_db
-    async with get_db() as db:
-        rows = await db.execute(
-            """SELECT entry_time, net_pnl, was_profitable
-            FROM trades WHERE status = 'CLOSED' AND entry_time IS NOT NULL"""
-        )
-        hourly = {}
-        async for row in rows:
-            try:
-                hour = int(row["entry_time"][11:13])
-                if hour not in hourly:
-                    hourly[hour] = {"trades": 0, "wins": 0, "pnl": 0}
-                hourly[hour]["trades"] += 1
-                hourly[hour]["pnl"] += row["net_pnl"] or 0
-                if row["was_profitable"]:
-                    hourly[hour]["wins"] += 1
-            except (ValueError, IndexError, TypeError):
-                continue
-    result = []
-    for h in range(9, 16):
-        data = hourly.get(h, {"trades": 0, "wins": 0, "pnl": 0})
-        wr = (data["wins"] / data["trades"] * 100) if data["trades"] > 0 else 0
-        result.append({"hour": h, "label": f"{h}:00", "trades": data["trades"],
-                       "wins": data["wins"], "pnl": round(data["pnl"], 2), "win_rate": round(wr, 1)})
-    return {"hours": result}
-
-
-# ═══════════════════════════════════════════════════════════════
-# FEATURES 1-24: FULL TRADING TERMINAL ENDPOINTS
-# ═══════════════════════════════════════════════════════════════
-
-@app.get("/api/position/live-pnl")
-async def get_live_pnl():
-    """Feature 1: Live P&L — real-time profit/loss for active position."""
-    state = get_state()
-    trade = state.active_trade
-    if not trade:
-        return {"active": False}
-    try:
-        ltp = await state.market_data.get_ltp(trade.ticker)
-    except Exception:
-        ltp = trade.entry_price
-    from tradepilot.layer2.engine8_charges import calculate_angel_charges
-    gross = trade.qty * (ltp - trade.entry_price)
-    charges, breakdown = calculate_angel_charges(trade.qty, trade.entry_price, ltp)
-    net = gross - charges
-    pct = (net / trade.capital_used * 100) if trade.capital_used > 0 else 0
-    return {
-        "active": True, "ticker": trade.ticker, "ltp": ltp,
-        "entry_price": trade.entry_price, "qty": trade.qty,
-        "gross_pnl": round(gross, 2), "charges": round(charges, 2),
-        "net_pnl": round(net, 2), "pnl_pct": round(pct, 2),
-        "if_exit_now": round(net, 2),
-    }
-
-
-@app.get("/api/market/premarket")
-async def get_premarket():
-    """Feature 2: Pre-market scanner."""
-    state = get_state()
-    scores = state.watchlist_scores
-    if not scores:
-        return {"gap_ups": [], "gap_downs": [], "status": "no_data"}
-    gaps = []
-    for s in scores[:30]:
-        try:
-            candles = await state.market_data.get_candles(s.symbol, "1d", datetime.now() - timedelta(days=3), datetime.now())
-            if candles.empty or len(candles) < 2:
-                continue
-            prev_close = float(candles["close"].iloc[-2])
-            curr = s.ltp
-            gap_pct = ((curr - prev_close) / prev_close * 100) if prev_close > 0 else 0
-            gaps.append({"symbol": s.symbol, "sector": s.sector, "prev_close": round(prev_close, 1),
-                         "current": round(curr, 1), "gap_pct": round(gap_pct, 2)})
-        except Exception:
-            continue
-    gap_ups = sorted([g for g in gaps if g["gap_pct"] > 0.3], key=lambda x: x["gap_pct"], reverse=True)[:5]
-    gap_downs = sorted([g for g in gaps if g["gap_pct"] < -0.3], key=lambda x: x["gap_pct"])[:5]
-    return {"gap_ups": gap_ups, "gap_downs": gap_downs}
 
 
 class PriceAlertRequest(BaseModel):
@@ -1205,188 +1030,6 @@ class PriceAlertRequest(BaseModel):
     direction: str = Field(..., pattern="^(ABOVE|BELOW)$")
 
 
-@app.post("/api/alerts/price")
-async def create_price_alert(request: PriceAlertRequest):
-    """Feature 3: Create price alert."""
-
-    # Score the stock
-    from tradepilot.layer1.nifty_universe import get_sector_map
-    sector_map = get_sector_map()
-    sector = sector_map.get(symbol, "Unknown")
-
-    # --- NEW: "Why this stock?" reasoning ---
-    reasons = []
-    if ema9 > ema21:
-        reasons.append("Short-term trend is up (EMA9 > EMA21)")
-    if macd_hist > 0:
-        reasons.append("MACD is positive — buying momentum active")
-    if ltp > vwap:
-        reasons.append("Price is above VWAP — buyers in control")
-    if volume_ratio > 1.3:
-        reasons.append(f"Volume is {volume_ratio:.1f}x above average — strong interest today")
-    if 45 <= rsi <= 65:
-        reasons.append(f"RSI at {rsi:.0f} — healthy range, not overbought or oversold")
-    if sector in ["IT", "Banking", "Power", "Defence"]:
-        reasons.append(f"{sector} sector is among today's top performers")
-    if not reasons:
-        reasons.append("Setup is neutral — no strong conviction either way")
-
-    why_this_stock = f"{symbol} is showing " + (
-        "bullish signals" if trend == "BULLISH" else
-        "mixed signals" if trend == "SIDEWAYS" else "bearish signals"
-    ) + " because: " + reasons[0].lower()
-    if len(reasons) > 1:
-        why_this_stock += f", and {reasons[1].lower()}"
-
-    # --- NEW: Confidence level ---
-    confidence_points = 0
-    if ema9 > ema21: confidence_points += 1
-    if macd_hist > 0: confidence_points += 1
-    if ltp > vwap: confidence_points += 1
-    if volume_ratio > 1.0: confidence_points += 1
-    if 40 <= rsi <= 70: confidence_points += 1
-    if rr_ratio >= 1.5: confidence_points += 1
-
-    if confidence_points >= 5:
-        confidence = "HIGH"
-        confidence_desc = "Most indicators align — good probability trade"
-    elif confidence_points >= 3:
-        confidence = "MEDIUM"
-        confidence_desc = "Some indicators positive, some mixed — proceed with caution"
-    else:
-        confidence = "LOW"
-        confidence_desc = "Few indicators align — better to skip or wait"
-
-    # --- NEW: Sector rank ---
-    sector_stocks = [s for s in state.watchlist_scores if s.sector == sector]
-    sector_stocks.sort(key=lambda x: x.composite, reverse=True)
-    sector_rank = next((i + 1 for i, s in enumerate(sector_stocks) if s.symbol == symbol), 0)
-    sector_total = len(sector_stocks)
-
-    # --- NEW: Charges breakdown ---
-    charges_detail, charge_breakdown = calculate_angel_charges(suggested_qty, ltp, target_1)
-
-    # --- NEW: Recent news for this stock ---
-    stock_news = []
-    try:
-        from tradepilot.layer2.engine27_news import _news_cache
-        if _news_cache and _news_cache.items:
-            sym_lower = symbol.lower()
-            for item in _news_cache.items:
-                if sym_lower in item.title.lower():
-                    stock_news.append({"title": item.title, "sentiment": item.sentiment})
-                    if len(stock_news) >= 3:
-                        break
-    except Exception:
-        pass
-
-    # --- NEW: Last 5 days mini performance ---
-    daily_candles = await state.market_data.get_candles(symbol, "1d", now - timedelta(days=7), now)
-    last_5_days = []
-    if not daily_candles.empty:
-        for _, row in daily_candles.tail(5).iterrows():
-            change_pct = ((float(row["close"]) - float(row["open"])) / float(row["open"]) * 100) if float(row["open"]) > 0 else 0
-            last_5_days.append({
-                "date": str(row.get("timestamp", ""))[:10],
-                "open": round(float(row["open"]), 1),
-                "close": round(float(row["close"]), 1),
-                "change_pct": round(change_pct, 2),
-            })
-
-    # --- NEW: Past signals for this stock ---
-    past_signals = []
-    try:
-        from tradepilot.database import get_db as _get_db
-        async with _get_db() as db:
-            rows = await db.execute(
-                "SELECT date, ltp, target, outcome FROM signal_history WHERE symbol = ? ORDER BY timestamp DESC LIMIT 3",
-                (symbol,),
-            )
-            async for row in rows:
-                past_signals.append({"date": row["date"], "ltp": row["ltp"], "target": row["target"], "outcome": row["outcome"]})
-    except Exception:
-        pass
-
-    # --- NEW: Best entry time (based on intraday pattern) ---
-    best_hour = None
-    if not candles.empty and "timestamp" in candles.columns:
-        try:
-            import pandas as pd
-            candles_copy = candles.copy()
-            candles_copy["hour"] = pd.to_datetime(candles_copy["timestamp"]).dt.hour
-            candles_copy["move"] = candles_copy["close"] - candles_copy["open"]
-            hourly_moves = candles_copy.groupby("hour")["move"].mean()
-            if not hourly_moves.empty:
-                best_h = int(hourly_moves.idxmax())
-                best_hour = f"{best_h}:00 – {best_h}:59"
-        except Exception:
-            pass
-
-    import pandas as pd  # ensure available for the above
-
-    return {
-        "symbol": symbol,
-        "sector": sector,
-        "ltp": ltp,
-        "trend": trend,
-        "trend_description": trend_desc,
-        "why_this_stock": why_this_stock,
-        "reasons": reasons,
-        "confidence": confidence,
-        "confidence_description": confidence_desc,
-        "sector_rank": {"rank": sector_rank, "total": sector_total,
-                        "label": f"#{sector_rank} in {sector} ({sector_total} stocks)"},
-        "entry_zone": {"low": entry_low, "high": entry_high},
-        "stop_loss": stop_loss,
-        "targets": [
-            {"level": 1, "price": target_1, "label": "Target 1 (conservative)"},
-            {"level": 2, "price": target_2, "label": "Target 2 (moderate)"},
-            {"level": 3, "price": target_3, "label": "Target 3 (aggressive)"},
-        ],
-        "risk_reward": rr_ratio,
-        "suggested_qty": suggested_qty,
-        "capital_required": round(suggested_qty * ltp / leverage, 2),
-        "estimated_charges": round(charges, 2),
-        "charges_breakdown": {
-            "brokerage": charge_breakdown.brokerage,
-            "stt": charge_breakdown.stt,
-            "exchange_txn": charge_breakdown.exchange_txn,
-            "gst": charge_breakdown.gst,
-            "stamp_duty": charge_breakdown.stamp_duty,
-            "sebi": charge_breakdown.sebi,
-            "total": charge_breakdown.total,
-        },
-        "net_profit_target1": round(net_profit_t1, 2),
-        "risk_per_share": round(risk_per_share, 2),
-        "indicators": {
-            "rsi": round(rsi, 1),
-            "vwap": round(vwap, 2),
-            "ema9": round(ema9, 2),
-            "ema21": round(ema21, 2),
-            "macd_histogram": round(macd_hist, 4),
-            "atr": round(atr, 2),
-            "volume_ratio": round(volume_ratio, 2),
-            "day_high": round(day_high, 2),
-            "day_low": round(day_low, 2),
-            "support": round(support, 2),
-            "resistance": round(resistance, 2),
-        },
-        "entry_conditions": entry_conditions,
-        "avoid_conditions": avoid_conditions,
-        "risk_advice": [
-            f"Max risk: ₹{max_risk:.0f} ({growth.current_tier.value} tier)",
-            f"Risk per share: ₹{risk_per_share:.1f} (stop at ₹{stop_loss:.1f})",
-            f"Don't risk more than 1-2% of your ₹{capital:.0f} capital on this trade",
-            "Wait for confirmation — don't chase a candle that already moved sharply",
-            "Exit immediately if stop loss is hit — no hoping for recovery",
-        ],
-        "stock_news": stock_news,
-        "last_5_days": last_5_days,
-        "past_signals": past_signals,
-        "best_entry_time": best_hour,
-    }
-
-
 @app.get("/api/stats/time-performance")
 async def get_time_performance():
     """P&L by hour of entry — find your best trading times."""
@@ -1408,7 +1051,6 @@ async def get_time_performance():
                     hourly[hour]["wins"] += 1
             except (ValueError, IndexError, TypeError):
                 continue
-
     result = []
     for h in range(9, 16):
         data = hourly.get(h, {"trades": 0, "wins": 0, "pnl": 0})
@@ -1417,10 +1059,6 @@ async def get_time_performance():
                        "wins": data["wins"], "pnl": round(data["pnl"], 2), "win_rate": round(wr, 1)})
     return {"hours": result}
 
-
-# ═══════════════════════════════════════════════════════════════
-# FEATURES 1-24: FULL TRADING TERMINAL ENDPOINTS
-# ═══════════════════════════════════════════════════════════════
 
 @app.get("/api/position/live-pnl")
 async def get_live_pnl():
@@ -1454,7 +1092,6 @@ async def get_premarket():
     scores = state.watchlist_scores
     if not scores:
         return {"gap_ups": [], "gap_downs": [], "status": "no_data"}
-    # Use daily candle close vs current LTP to compute gap
     gaps = []
     for s in scores[:30]:
         try:
@@ -1471,12 +1108,6 @@ async def get_premarket():
     gap_ups = sorted([g for g in gaps if g["gap_pct"] > 0.3], key=lambda x: x["gap_pct"], reverse=True)[:5]
     gap_downs = sorted([g for g in gaps if g["gap_pct"] < -0.3], key=lambda x: x["gap_pct"])[:5]
     return {"gap_ups": gap_ups, "gap_downs": gap_downs}
-
-
-class PriceAlertRequest(BaseModel):
-    symbol: str = Field(..., min_length=1, max_length=20)
-    target_price: float = Field(..., gt=0)
-    direction: str = Field(..., pattern="^(ABOVE|BELOW)$")
 
 
 @app.post("/api/alerts/price")
@@ -1884,7 +1515,6 @@ async def get_screener():
         "last_scan": state.last_scan_time.isoformat() if state.last_scan_time else None,
     }
     - Strength = alignment across all three
-    """
     from tradepilot.layer2.engine4_discovery import compute_ema, compute_rsi
     state = get_state()
     scores = state.watchlist_scores
@@ -2251,7 +1881,7 @@ DEBUG_ENDPOINTS_ENABLED = True  # Set False for production
 
 @app.post("/api/scan")
 async def trigger_scan():
-    """DEV ONLY. Rate-limited to once per 60s. Respects Engine 11 gate."""
+    """DEV ONLY. Rate-limited. Respects Engine 11 gate."""
     global _last_scan_trigger
     if not DEBUG_ENDPOINTS_ENABLED:
         raise HTTPException(status_code=404, detail="Debug endpoints disabled")
@@ -2270,7 +1900,7 @@ async def trigger_scan():
 
 @app.post("/api/monitor")
 async def trigger_monitor():
-    """DEV ONLY. Rate-limited to once per 30s."""
+    """DEV ONLY. Rate-limited."""
     global _last_monitor_trigger
     if not DEBUG_ENDPOINTS_ENABLED:
         raise HTTPException(status_code=404, detail="Debug endpoints disabled")
@@ -2293,7 +1923,6 @@ async def debug_data_check():
         raise HTTPException(status_code=404, detail="Debug endpoints disabled")
 
     import asyncio
-    from datetime import timedelta
 
     state = get_state()
     provider = state.market_data
