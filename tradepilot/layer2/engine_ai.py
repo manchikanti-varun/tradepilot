@@ -350,7 +350,7 @@ async def analyze_with_gemini(symbol: str, data: dict) -> Optional[dict]:
         return None
 
     prompt = _build_prompt(symbol, data)
-    url = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key={GEMINI_API_KEY}"
+    url = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key={GEMINI_API_KEY}"
 
     payload = {
         "contents": [{"parts": [{"text": prompt}]}],
