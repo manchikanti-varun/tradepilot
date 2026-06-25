@@ -122,8 +122,10 @@ export default function SettingsPage({ growth, onCapitalUpdate }) {
         <SettingRow label="Scan interval" sublabel="How often to scan for signals">
           <select value={settings.scan_interval_sec} onChange={e => updateLocal('scan_interval_sec', e.target.value)}
             className="bg-dark-900 border border-dark-500 rounded-lg px-3 py-2 text-sm text-white outline-none">
+            <option value="60">Every 1 min</option>
+            <option value="90">Every 1.5 min (default)</option>
             <option value="120">Every 2 min</option>
-            <option value="180">Every 3 min (default)</option>
+            <option value="180">Every 3 min</option>
             <option value="300">Every 5 min</option>
           </select>
         </SettingRow>
@@ -156,7 +158,7 @@ export default function SettingsPage({ growth, onCapitalUpdate }) {
       {/* About */}
       <div className="bg-dark-700 border border-dark-600 rounded-xl p-4 text-center">
         <p className="text-sm font-bold text-white">TradePilot AI</p>
-        <p className="text-[11px] text-gray-500 mt-1">Manual execution co-pilot • Angel One SmartAPI</p>
+        <p className="text-[11px] text-gray-500 mt-1">Manual execution co-pilot • AI-powered signals</p>
         <p className="text-[10px] text-gray-600 mt-0.5">Real-time data • Zero auto-trading</p>
       </div>
     </div>

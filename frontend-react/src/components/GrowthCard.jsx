@@ -1,6 +1,6 @@
 import { Wallet, ChevronRight } from 'lucide-react'
 
-const TIERS = { A: [1000, 2000], B: [2000, 5000], C: [5000, 10000], D: [10000, 20000] }
+const TIERS = { A: [1000, 2000], B: [2000, 5000], C: [5000, 10000], D: [10000, 100000] }
 
 export default function GrowthCard({ growth }) {
   const range = TIERS[growth.current_tier] || [1000, 2000]

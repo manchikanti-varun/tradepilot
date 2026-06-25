@@ -22,7 +22,7 @@ DEFAULTS = {
     "vix_halt_threshold": "22",
     "min_signal_score": "60",
     "grade_filter": "A+,A,B",
-    "scan_interval_sec": "180",
+    "scan_interval_sec": "90",
     "notifications_enabled": "true",
     "sound_enabled": "true",
     "vibration_enabled": "true",

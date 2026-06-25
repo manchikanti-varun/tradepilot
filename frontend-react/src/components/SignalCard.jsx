@@ -7,7 +7,7 @@ export default function SignalCard({ signals }) {
       <div className="bg-dark-700 border border-dark-600 rounded-2xl p-8 text-center">
         <Crosshair size={28} className="mx-auto mb-2 text-gray-600" />
         <p className="text-sm text-gray-400">No actionable signals</p>
-        <p className="text-[11px] text-gray-600 mt-1">Scanning every 3 min during market hours</p>
+        <p className="text-[11px] text-gray-600 mt-1">Scanning every 90 sec during market hours</p>
       </div>
     )
   }

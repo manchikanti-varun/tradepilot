@@ -353,7 +353,7 @@ async def analyze_with_gemini(symbol: str, data: dict) -> Optional[dict]:
     url = "https://openrouter.ai/api/v1/chat/completions"
 
     payload = {
-        "model": "google/gemma-4-26b-a4b-it:free",
+        "model": "meta-llama/llama-4-maverick:free",
         "messages": [{"role": "user", "content": prompt}],
         "temperature": 0.3,
         "max_tokens": 600,
@@ -368,7 +368,7 @@ async def analyze_with_gemini(symbol: str, data: dict) -> Optional[dict]:
 
     try:
         async with aiohttp.ClientSession() as session:
-            async with session.post(url, json=payload, headers=headers, timeout=aiohttp.ClientTimeout(total=30)) as resp:
+            async with session.post(url, json=payload, headers=headers, timeout=aiohttp.ClientTimeout(total=45)) as resp:
                 if resp.status != 200:
                     body = await resp.text()
                     logger.warning("OpenRouter returned %d: %s", resp.status, body[:200])
