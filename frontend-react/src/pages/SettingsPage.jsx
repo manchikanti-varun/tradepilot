@@ -1,15 +1,26 @@
 import { useState, useEffect } from 'react'
-import { Settings, Wallet, Shield, Bell, Palette, Save, RefreshCw, CheckCircle2 } from 'lucide-react'
-import { api, formatCurrency } from '../api'
+import { Settings, Wallet, Shield, Bell, Palette, Save, RefreshCw, CheckCircle2, Key, Wifi, WifiOff, Clock, LogOut, Lock, ExternalLink, Check } from 'lucide-react'
+import { api, auth, formatCurrency } from '../api'
 
-export default function SettingsPage({ growth, onCapitalUpdate }) {
+export default function SettingsPage({ growth, onCapitalUpdate, user, onLogout }) {
   const [settings, setSettings] = useState(null)
   const [saving, setSaving] = useState(false)
   const [saved, setSaved] = useState(false)
   const [capitalInput, setCapitalInput] = useState('')
+  const [credStatus, setCredStatus] = useState(null)
+  const [showGroqEdit, setShowGroqEdit] = useState(false)
+  const [showAngelEdit, setShowAngelEdit] = useState(false)
+  const [groqKey, setGroqKey] = useState('')
+  const [angelKey, setAngelKey] = useState('')
+  const [angelClient, setAngelClient] = useState('')
+  const [angelPassword, setAngelPassword] = useState('')
+  const [angelTotp, setAngelTotp] = useState('')
+  const [credSaving, setCredSaving] = useState(false)
+  const [credMsg, setCredMsg] = useState('')
 
   useEffect(() => {
     api.getSettings().then(res => setSettings(res.settings)).catch(() => {})
+    auth.credentialsStatus().then(setCredStatus).catch(() => {})
   }, [])
 
   const updateLocal = (key, value) => {
@@ -36,6 +47,38 @@ export default function SettingsPage({ growth, onCapitalUpdate }) {
       onCapitalUpdate(val)
       setCapitalInput('')
     }
+  }
+
+  const handleGroqSave = async () => {
+    if (!groqKey.trim()) return
+    setCredSaving(true); setCredMsg('')
+    try {
+      await auth.saveGroqKey(groqKey.trim())
+      setGroqKey(''); setShowGroqEdit(false)
+      setCredStatus(await auth.credentialsStatus())
+      setCredMsg('Groq key updated')
+      setTimeout(() => setCredMsg(''), 3000)
+    } catch (e) { setCredMsg(e.message) }
+    setCredSaving(false)
+  }
+
+  const handleAngelSave = async () => {
+    if (!angelKey || !angelClient || !angelPassword || !angelTotp) { setCredMsg('All fields required'); return }
+    setCredSaving(true); setCredMsg('')
+    try {
+      await auth.saveBrokerCreds({
+        angel_api_key: angelKey.trim(),
+        angel_client_id: angelClient.trim(),
+        angel_password: angelPassword.trim(),
+        angel_totp_secret: angelTotp.trim(),
+      })
+      setAngelKey(''); setAngelClient(''); setAngelPassword(''); setAngelTotp('')
+      setShowAngelEdit(false)
+      setCredStatus(await auth.credentialsStatus())
+      setCredMsg('Angel One credentials updated')
+      setTimeout(() => setCredMsg(''), 3000)
+    } catch (e) { setCredMsg(e.message) }
+    setCredSaving(false)
   }
 
   if (!settings) {
@@ -155,11 +198,118 @@ export default function SettingsPage({ growth, onCapitalUpdate }) {
         </SettingRow>
       </Section>
 
+      {/* Credentials & API Keys */}
+      <Section icon={Key} title="API Keys & Credentials" color="text-accent-blue">
+        {/* Data Mode Status */}
+        {credStatus && (
+          <div className="flex items-center gap-2 text-xs mb-3 bg-dark-900 rounded-lg px-3 py-2">
+            {credStatus.data_mode === 'hybrid'
+              ? <Wifi size={13} className="text-green-400" />
+              : <Clock size={13} className="text-amber-400" />}
+            <span className="text-gray-300">{credStatus.data_mode_label || credStatus.data_mode}</span>
+          </div>
+        )}
+
+        {/* Groq API Key */}
+        <div className="border-b border-dark-500 pb-3">
+          <div className="flex items-center justify-between">
+            <div>
+              <p className="text-xs text-gray-200 font-medium">Groq API Key</p>
+              <p className="text-[10px] text-gray-500">Powers AI analysis & signals</p>
+            </div>
+            {credStatus?.groq ? (
+              <div className="flex items-center gap-2">
+                <span className="flex items-center gap-1 text-[10px] text-green-400"><Check size={10} /> Active</span>
+                <button onClick={() => setShowGroqEdit(!showGroqEdit)}
+                  className="text-[10px] text-accent-blue hover:underline">Change</button>
+              </div>
+            ) : (
+              <button onClick={() => setShowGroqEdit(true)}
+                className="text-[10px] text-red-400 bg-red-500/10 px-2 py-1 rounded">Not set</button>
+            )}
+          </div>
+          {showGroqEdit && (
+            <div className="flex gap-2 mt-2">
+              <input type="password" value={groqKey} onChange={e => setGroqKey(e.target.value)}
+                placeholder="gsk_xxxxxxxxxxxx"
+                className="flex-1 bg-dark-900 border border-dark-500 rounded-lg px-3 py-2 text-sm text-white outline-none focus:border-accent-blue" />
+              <button onClick={handleGroqSave} disabled={credSaving || !groqKey.trim()}
+                className="px-3 py-2 bg-accent-blue text-white rounded-lg text-xs font-medium disabled:opacity-50">Save</button>
+            </div>
+          )}
+        </div>
+
+        {/* Angel One */}
+        <div className="pt-3">
+          <div className="flex items-center justify-between">
+            <div>
+              <p className="text-xs text-gray-200 font-medium">Angel One</p>
+              <p className="text-[10px] text-gray-500">Optional — real-time data only, not for placing orders</p>
+            </div>
+            {credStatus?.angel_one ? (
+              <div className="flex items-center gap-2">
+                <span className="flex items-center gap-1 text-[10px] text-green-400"><Wifi size={10} /> Hybrid</span>
+                <button onClick={() => setShowAngelEdit(!showAngelEdit)}
+                  className="text-[10px] text-accent-blue hover:underline">Change</button>
+              </div>
+            ) : (
+              <button onClick={() => setShowAngelEdit(!showAngelEdit)}
+                className="text-[10px] text-gray-400 bg-dark-600 px-2 py-1 rounded">{showAngelEdit ? 'Hide' : 'Add'}</button>
+            )}
+          </div>
+          {showAngelEdit && (
+            <div className="mt-2 space-y-2">
+              <input type="text" value={angelKey} onChange={e => setAngelKey(e.target.value)}
+                placeholder="API Key" className="w-full bg-dark-900 border border-dark-500 rounded-lg px-3 py-2 text-sm text-white outline-none focus:border-accent-blue" />
+              <input type="text" value={angelClient} onChange={e => setAngelClient(e.target.value)}
+                placeholder="Client ID" className="w-full bg-dark-900 border border-dark-500 rounded-lg px-3 py-2 text-sm text-white outline-none focus:border-accent-blue" />
+              <input type="password" value={angelPassword} onChange={e => setAngelPassword(e.target.value)}
+                placeholder="Password" className="w-full bg-dark-900 border border-dark-500 rounded-lg px-3 py-2 text-sm text-white outline-none focus:border-accent-blue" />
+              <input type="text" value={angelTotp} onChange={e => setAngelTotp(e.target.value)}
+                placeholder="TOTP Secret" className="w-full bg-dark-900 border border-dark-500 rounded-lg px-3 py-2 text-sm text-white outline-none focus:border-accent-blue" />
+              <button onClick={handleAngelSave} disabled={credSaving}
+                className="w-full bg-purple-600 hover:bg-purple-700 text-white py-2 rounded-lg text-xs font-medium disabled:opacity-50">
+                {credStatus?.angel_one ? 'Update' : 'Save'} Angel One Credentials
+              </button>
+              <p className="flex items-center justify-center gap-1 text-[10px] text-gray-500">
+                <Lock size={9} /> Encrypted at rest with AES-256
+              </p>
+            </div>
+          )}
+        </div>
+
+        {credMsg && (
+          <p className={`text-[10px] mt-2 ${credMsg.includes('updated') || credMsg.includes('saved') ? 'text-green-400' : 'text-red-400'}`}>
+            {credMsg}
+          </p>
+        )}
+      </Section>
+
+      {/* Account */}
+      <Section icon={Shield} title="Account" color="text-gray-400">
+        {user && (
+          <div className="space-y-2">
+            <div className="flex items-center justify-between">
+              <span className="text-xs text-gray-400">Email</span>
+              <span className="text-xs text-gray-200">{user.email}</span>
+            </div>
+            <div className="flex items-center justify-between">
+              <span className="text-xs text-gray-400">Name</span>
+              <span className="text-xs text-gray-200">{user.name}</span>
+            </div>
+          </div>
+        )}
+        <button onClick={onLogout}
+          className="w-full mt-3 flex items-center justify-center gap-2 py-2.5 bg-red-500/10 border border-red-500/30 rounded-lg text-sm text-red-400 font-medium hover:bg-red-500/20 transition-colors">
+          <LogOut size={14} /> Logout
+        </button>
+      </Section>
+
       {/* About */}
       <div className="bg-dark-700 border border-dark-600 rounded-xl p-4 text-center">
         <p className="text-sm font-bold text-white">TradePilot AI</p>
-        <p className="text-[11px] text-gray-500 mt-1">Manual execution co-pilot • AI-powered signals</p>
-        <p className="text-[10px] text-gray-600 mt-0.5">Real-time data • Zero auto-trading</p>
+        <p className="text-[11px] text-gray-500 mt-1">Manual execution co-pilot &middot; AI-powered signals</p>
+        <p className="text-[10px] text-gray-600 mt-0.5">Real-time data &middot; Zero auto-trading</p>
       </div>
     </div>
   )

@@ -323,21 +323,42 @@ async def refresh_access_token(refresh_token: str) -> dict:
 
 
 async def save_broker_credentials(user_id: int, creds: BrokerCredentialsRequest) -> dict:
-    """Encrypt and store user's Angel One credentials."""
+    """Encrypt and store user's Angel One credentials. Preserves existing Groq key if set."""
     async with get_db() as db:
-        await db.execute(
-            """INSERT OR REPLACE INTO user_credentials
-            (user_id, angel_api_key, angel_client_id, angel_password, angel_totp_secret, updated_at)
-            VALUES (?, ?, ?, ?, ?, ?)""",
-            (
-                user_id,
-                encrypt_credential(creds.angel_api_key),
-                encrypt_credential(creds.angel_client_id),
-                encrypt_credential(creds.angel_password),
-                encrypt_credential(creds.angel_totp_secret),
-                datetime.now().isoformat(),
-            ),
-        )
+        # Check if row exists
+        row = await db.execute("SELECT groq_api_key FROM user_credentials WHERE user_id = ?", (user_id,))
+        existing = await row.fetchone()
+
+        if existing:
+            # Update only Angel One fields — preserve Groq key
+            await db.execute(
+                """UPDATE user_credentials
+                SET angel_api_key = ?, angel_client_id = ?, angel_password = ?, angel_totp_secret = ?, updated_at = ?
+                WHERE user_id = ?""",
+                (
+                    encrypt_credential(creds.angel_api_key),
+                    encrypt_credential(creds.angel_client_id),
+                    encrypt_credential(creds.angel_password),
+                    encrypt_credential(creds.angel_totp_secret),
+                    datetime.now().isoformat(),
+                    user_id,
+                ),
+            )
+        else:
+            # No row yet — insert fresh
+            await db.execute(
+                """INSERT INTO user_credentials
+                (user_id, angel_api_key, angel_client_id, angel_password, angel_totp_secret, updated_at)
+                VALUES (?, ?, ?, ?, ?, ?)""",
+                (
+                    user_id,
+                    encrypt_credential(creds.angel_api_key),
+                    encrypt_credential(creds.angel_client_id),
+                    encrypt_credential(creds.angel_password),
+                    encrypt_credential(creds.angel_totp_secret),
+                    datetime.now().isoformat(),
+                ),
+            )
         await db.commit()
 
     logger.info("Broker credentials saved for user_id=%d", user_id)
@@ -345,18 +366,22 @@ async def save_broker_credentials(user_id: int, creds: BrokerCredentialsRequest)
 
 
 async def save_groq_key(user_id: int, request: GroqKeyRequest) -> dict:
-    """Encrypt and store user's Groq API key."""
+    """Encrypt and store user's Groq API key. Preserves existing Angel One creds if set."""
     async with get_db() as db:
-        await db.execute(
-            """UPDATE user_credentials SET groq_api_key = ?, updated_at = ?
-            WHERE user_id = ?""",
-            (encrypt_credential(request.groq_api_key), datetime.now().isoformat(), user_id),
-        )
-        # If no row exists yet, insert
-        if (await (await db.execute("SELECT changes()")).fetchone())[0] == 0:
+        # Check if row exists
+        row = await db.execute("SELECT user_id FROM user_credentials WHERE user_id = ?", (user_id,))
+        existing = await row.fetchone()
+
+        if existing:
+            # Update only Groq key — preserve Angel One fields
             await db.execute(
-                """INSERT INTO user_credentials (user_id, groq_api_key, updated_at)
-                VALUES (?, ?, ?)""",
+                "UPDATE user_credentials SET groq_api_key = ?, updated_at = ? WHERE user_id = ?",
+                (encrypt_credential(request.groq_api_key), datetime.now().isoformat(), user_id),
+            )
+        else:
+            # No row yet — insert with just Groq key
+            await db.execute(
+                "INSERT INTO user_credentials (user_id, groq_api_key, updated_at) VALUES (?, ?, ?)",
                 (user_id, encrypt_credential(request.groq_api_key), datetime.now().isoformat()),
             )
         await db.commit()

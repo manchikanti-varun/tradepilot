@@ -48,6 +48,7 @@ export default function SetupPage({ onComplete }) {
         angel_totp_secret: angelTotp.trim(),
       })
       setAngelKey(''); setAngelClient(''); setAngelPassword(''); setAngelTotp('')
+      setShowAngel(false)
       const s = await auth.credentialsStatus()
       setStatus(s)
     } catch (err) {
@@ -132,19 +133,19 @@ export default function SetupPage({ onComplete }) {
           </div>
 
           <p className="text-xs text-gray-400 mb-2">
-            Enables real-time LTP and live market depth. Without this, the system uses Yahoo Finance
-            (1-2 min delay) which works fine for signal generation.
+            Enables real-time LTP and live market depth from Angel One SmartAPI.
+            Without this, the system uses Yahoo Finance (1-2 min delay) which works fine for signal generation.
           </p>
 
           <div className="text-xs text-gray-500 mb-3 bg-dark-700 rounded-lg p-2.5 space-y-1.5">
-            <div className="font-medium text-gray-300">What you get:</div>
+            <div className="font-medium text-gray-300">How it works:</div>
             <div className="flex items-center gap-2">
               <WifiOff size={12} className="text-amber-400 shrink-0" />
-              <span>Without Angel One — Yahoo Finance (delayed ~60s, unlimited calls)</span>
+              <span>Without Angel One — Yahoo Finance (delayed ~60s). You execute trades in any broker.</span>
             </div>
             <div className="flex items-center gap-2">
               <Wifi size={12} className="text-green-400 shrink-0" />
-              <span>With Angel One — Hybrid mode (real-time LTP + live bid/ask depth)</span>
+              <span>With Angel One — Real-time prices + live depth. You still execute trades manually.</span>
             </div>
           </div>
 

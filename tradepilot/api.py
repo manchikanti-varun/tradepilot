@@ -413,7 +413,7 @@ async def get_signals():
             "breakeven_pct": s.breakeven_pct,
             "risk_reward": s.risk_reward,
             "message": s.message,
-            "action": "Buy this in Angel One" if s.priority == 1 else "Next best if Priority #1 fails",
+            "action": "Execute this in your broker" if s.priority == 1 else "Next best if Priority #1 missed",
             "generated_at": generated.isoformat(),
             "expires_in_sec": remaining_sec,
             "is_expired": is_expired,

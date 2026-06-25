@@ -97,6 +97,6 @@ async def check_entry_conditions(
     # All passed
     return EntryCheckResult(
         True,
-        "All entry conditions met — place BUY in Angel One now, entry zone valid ~90 sec",
+        "All entry conditions met — execute in your broker now, entry zone valid ~90 sec",
         symbol, ltp, score,
     )
