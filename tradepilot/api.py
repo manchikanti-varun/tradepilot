@@ -1878,3 +1878,92 @@ async def debug_data_check():
         results["_vix_error"] = str(e)[:100]
 
     return results
+
+
+@app.get("/api/debug/gemini-test")
+async def debug_gemini_test():
+    """Test AI APIs directly — shows exact error if it fails."""
+    import aiohttp
+
+    results = {}
+
+    # Test OpenRouter
+    openrouter_key = os.environ.get("OPENROUTER_API_KEY", "")
+    if openrouter_key:
+        try:
+            url = "https://openrouter.ai/api/v1/chat/completions"
+            payload = {
+                "model": "google/gemma-4-26b-a4b-it:free",
+                "messages": [{"role": "user", "content": "Say hello in JSON: {\"message\": \"hello\"}"}],
+                "temperature": 0.1, "max_tokens": 50,
+            }
+            headers = {"Authorization": f"Bearer {openrouter_key}", "Content-Type": "application/json",
+                       "HTTP-Referer": "https://tradepilot.app", "X-Title": "TradePilot AI"}
+            async with aiohttp.ClientSession() as session:
+                async with session.post(url, json=payload, headers=headers, timeout=aiohttp.ClientTimeout(total=20)) as resp:
+                    status = resp.status
+                    body = await resp.text()
+                    if status == 200:
+                        import json
+                        data = json.loads(body)
+                        text = data.get("choices", [{}])[0].get("message", {}).get("content", "")
+                        results["openrouter"] = {"status": "success", "model": "gemma-4-26b", "response": text[:200]}
+                    else:
+                        results["openrouter"] = {"status": "error", "http_status": status, "body": body[:300]}
+        except Exception as e:
+            results["openrouter"] = {"status": "error", "reason": str(e)[:200]}
+    else:
+        results["openrouter"] = {"status": "not_configured", "fix": "Set OPENROUTER_API_KEY env var"}
+
+    # Test Gemini
+    gemini_key = os.environ.get("GEMINI_API_KEY", "")
+    if gemini_key:
+        try:
+            url = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash-lite:generateContent?key={gemini_key}"
+            payload = {"contents": [{"parts": [{"text": "Say hello in JSON: {\"message\": \"hello\"}"}]}],
+                       "generationConfig": {"temperature": 0.1, "maxOutputTokens": 50}}
+            async with aiohttp.ClientSession() as session:
+                async with session.post(url, json=payload, timeout=aiohttp.ClientTimeout(total=20)) as resp:
+                    status = resp.status
+                    body = await resp.text()
+                    if status == 200:
+                        import json
+                        data = json.loads(body)
+                        candidates = data.get("candidates", [])
+                        text = candidates[0].get("content", {}).get("parts", [{}])[0].get("text", "") if candidates else ""
+                        results["gemini"] = {"status": "success", "model": "gemini-2.5-flash-lite", "response": text[:200]}
+                    else:
+                        results["gemini"] = {"status": "error", "http_status": status, "body": body[:300]}
+        except Exception as e:
+            results["gemini"] = {"status": "error", "reason": str(e)[:200]}
+    else:
+        results["gemini"] = {"status": "not_configured", "fix": "Set GEMINI_API_KEY env var"}
+
+    # Test Groq
+    groq_key = os.environ.get("GROQ_API_KEY", "")
+    if groq_key:
+        try:
+            url = "https://api.groq.com/openai/v1/chat/completions"
+            payload = {"model": "llama-3.3-70b-versatile",
+                       "messages": [{"role": "user", "content": "Say hello in JSON: {\"message\": \"hello\"}"}],
+                       "temperature": 0.1, "max_tokens": 50}
+            headers = {"Authorization": f"Bearer {groq_key}", "Content-Type": "application/json"}
+            async with aiohttp.ClientSession() as session:
+                async with session.post(url, json=payload, headers=headers, timeout=aiohttp.ClientTimeout(total=15)) as resp:
+                    status = resp.status
+                    body = await resp.text()
+                    if status == 200:
+                        import json
+                        data = json.loads(body)
+                        text = data.get("choices", [{}])[0].get("message", {}).get("content", "")
+                        results["groq"] = {"status": "success", "model": "llama-3.3-70b", "response": text[:200]}
+                    else:
+                        results["groq"] = {"status": "error", "http_status": status, "body": body[:300]}
+        except Exception as e:
+            results["groq"] = {"status": "error", "reason": str(e)[:200]}
+    else:
+        results["groq"] = {"status": "not_configured", "fix": "Set GROQ_API_KEY env var"}
+
+    # Summary
+    working = [k for k, v in results.items() if v.get("status") == "success"]
+    return {"working_apis": working, "total_working": len(working), "details": results}

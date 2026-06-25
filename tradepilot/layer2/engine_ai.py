@@ -26,6 +26,7 @@ logger = logging.getLogger(__name__)
 
 GEMINI_API_KEY = os.environ.get("GEMINI_API_KEY", "")
 GROQ_API_KEY = os.environ.get("GROQ_API_KEY", "")
+OPENROUTER_API_KEY = os.environ.get("OPENROUTER_API_KEY", "")
 
 
 # ═══════════════════════════════════════════════════════════════
@@ -344,17 +345,76 @@ Respond ONLY in this JSON format:
 
 
 async def analyze_with_gemini(symbol: str, data: dict) -> Optional[dict]:
-    """Get analysis from Gemini AI."""
-    if not GEMINI_API_KEY:
-        logger.warning("Gemini API key not set")
+    """Get analysis from second AI (OpenRouter — free models, falls back to Gemini).
+    
+    Uses OpenRouter if key is set (20+ free models, no credit card).
+    Falls back to Gemini API if OPENROUTER_API_KEY is not set but GEMINI_API_KEY is.
+    """
+    # Try OpenRouter first (more reliable, many free models)
+    if OPENROUTER_API_KEY:
+        return await _analyze_openrouter(symbol, data)
+    
+    # Fallback to Gemini
+    if GEMINI_API_KEY:
+        return await _analyze_gemini_direct(symbol, data)
+    
+    logger.warning("Neither OPENROUTER_API_KEY nor GEMINI_API_KEY is set")
+    return None
+
+
+async def _analyze_openrouter(symbol: str, data: dict) -> Optional[dict]:
+    """Use OpenRouter free models — OpenAI-compatible API."""
+    prompt = _build_prompt(symbol, data)
+    url = "https://openrouter.ai/api/v1/chat/completions"
+
+    payload = {
+        "model": "google/gemma-4-26b-a4b-it:free",
+        "messages": [{"role": "user", "content": prompt}],
+        "temperature": 0.3,
+        "max_tokens": 600,
+    }
+
+    headers = {
+        "Authorization": f"Bearer {OPENROUTER_API_KEY}",
+        "Content-Type": "application/json",
+        "HTTP-Referer": "https://tradepilot.app",
+        "X-Title": "TradePilot AI",
+    }
+
+    try:
+        async with aiohttp.ClientSession() as session:
+            async with session.post(url, json=payload, headers=headers, timeout=aiohttp.ClientTimeout(total=30)) as resp:
+                if resp.status != 200:
+                    body = await resp.text()
+                    logger.warning("OpenRouter returned %d: %s", resp.status, body[:200])
+                    return None
+                result = await resp.json()
+
+        text = result.get("choices", [{}])[0].get("message", {}).get("content", "")
+        if not text:
+            logger.warning("OpenRouter returned empty response")
+            return None
+        return _parse_ai_response(text, "Gemini")  # Label as "Gemini" for frontend compatibility
+
+    except asyncio.TimeoutError:
+        logger.warning("OpenRouter timed out after 30s")
+        return None
+    except Exception as e:
+        logger.warning("OpenRouter failed: %s", str(e)[:150])
         return None
 
+
+async def _analyze_gemini_direct(symbol: str, data: dict) -> Optional[dict]:
+    """Direct Gemini API call (fallback if OpenRouter not configured)."""
     prompt = _build_prompt(symbol, data)
-    url = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key={GEMINI_API_KEY}"
+    url = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash-lite:generateContent?key={GEMINI_API_KEY}"
 
     payload = {
         "contents": [{"parts": [{"text": prompt}]}],
-        "generationConfig": {"temperature": 0.3, "maxOutputTokens": 600},
+        "generationConfig": {
+            "temperature": 0.3,
+            "maxOutputTokens": 600,
+        },
     }
 
     try:
@@ -362,16 +422,24 @@ async def analyze_with_gemini(symbol: str, data: dict) -> Optional[dict]:
             async with session.post(url, json=payload, timeout=aiohttp.ClientTimeout(total=30)) as resp:
                 if resp.status != 200:
                     body = await resp.text()
-                    logger.warning("Gemini API returned %d: %s", resp.status, body[:200])
+                    logger.warning("Gemini API returned %d: %s", resp.status, body[:300])
                     return None
                 result = await resp.json()
 
-        # Extract text from Gemini response
         candidates = result.get("candidates", [])
         if not candidates:
-            logger.warning("Gemini returned no candidates")
+            logger.warning("Gemini returned no candidates: %s", json.dumps(result)[:300])
             return None
-        text = candidates[0].get("content", {}).get("parts", [{}])[0].get("text", "")
+        
+        content = candidates[0].get("content", {})
+        parts = content.get("parts", [])
+        
+        text = ""
+        for part in parts:
+            if part.get("text"):
+                text = part["text"]
+                break
+        
         if not text:
             logger.warning("Gemini returned empty text")
             return None
@@ -379,10 +447,10 @@ async def analyze_with_gemini(symbol: str, data: dict) -> Optional[dict]:
         return _parse_ai_response(text, "Gemini")
 
     except asyncio.TimeoutError:
-        logger.warning("Gemini timed out")
+        logger.warning("Gemini timed out after 30s")
         return None
     except Exception as e:
-        logger.warning("Gemini analysis failed: %s", str(e)[:100])
+        logger.warning("Gemini failed: %s", str(e)[:150])
         return None
 
 
