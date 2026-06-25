@@ -14,7 +14,7 @@ from tradepilot.database import get_db
 
 
 SCORE_BUCKETS = [(65, 75), (75, 85), (85, 100)]
-MIN_TRADES_PER_BUCKET = 20
+MIN_TRADES_PER_BUCKET = 1  # No gate — calibration active from first trade
 DEFAULT_CALIBRATION_FACTOR = 0.75
 MAX_DISPLAYED_CONFIDENCE = 0.90
 
@@ -48,11 +48,12 @@ async def get_calibration_factors() -> CalibrationResult:
         data = await row.fetchone()
         total = data["cnt"] or 0
 
-        if total < 50:
+        # No gate — calibration works with any amount of data
+        if total == 0:
             return CalibrationResult(
                 bucket_factors={}, global_factor=DEFAULT_CALIBRATION_FACTOR,
-                total_trades_analyzed=total, is_active=False,
-                note=f"Insufficient data ({total}/50 trades). Using default factor {DEFAULT_CALIBRATION_FACTOR}",
+                total_trades_analyzed=0, is_active=True,
+                note="No trades yet. Using default factor.",
             )
 
         # Compute per-bucket

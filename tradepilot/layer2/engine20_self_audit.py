@@ -12,7 +12,7 @@ from tradepilot.config import ENABLE_ENGINE20_SELF_AUDIT
 from tradepilot.database import get_db
 
 
-MIN_LOSSES_FOR_AUDIT = 10
+MIN_LOSSES_FOR_AUDIT = 1  # No gate — self-audit active from first loss
 
 LOSS_CAUSES = [
     "LATE_ENTRY",          # entered after optimal window

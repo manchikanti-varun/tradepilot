@@ -11,7 +11,7 @@ from tradepilot.config import ENABLE_ENGINE19_STRATEGY
 from tradepilot.database import get_db
 
 
-MIN_TRADES_PER_PROFILE = 15
+MIN_TRADES_PER_PROFILE = 1  # No gate — strategy selection active immediately
 
 STRATEGY_PROFILES = {
     "MOMENTUM": {

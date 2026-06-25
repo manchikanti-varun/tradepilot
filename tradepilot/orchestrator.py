@@ -174,7 +174,29 @@ async def _run_live_pipeline_inner():
 
     # Engine 11: Risk evaluation
     try:
-        nifty_change = 0.0  # TODO: compute from stored open
+        # Compute real Nifty change from today's open
+        nifty_change = 0.0
+        try:
+            nifty_current = await state.market_data.get_nifty_value()
+            if nifty_current > 0:
+                async with get_db() as db:
+                    row = await db.execute(
+                        "SELECT open_value FROM nifty_daily WHERE date = ?",
+                        (now_ist().strftime("%Y-%m-%d"),),
+                    )
+                    data = await row.fetchone()
+                    if data and data["open_value"] and data["open_value"] > 0:
+                        nifty_change = (nifty_current - data["open_value"]) / data["open_value"] * 100
+                    else:
+                        # Store today's open if not yet stored
+                        await db.execute(
+                            "INSERT OR IGNORE INTO nifty_daily (date, open_value) VALUES (?, ?)",
+                            (now_ist().strftime("%Y-%m-%d"), nifty_current),
+                        )
+                        await db.commit()
+        except Exception as e:
+            logger.warning("Nifty change calc failed: %s", e)
+
         state.risk_state = await evaluate_risk(
             current_capital=capital, tier=tier, is_proven=growth.is_proven,
             progress_pct_to_next_tier=growth.progress_pct_to_next_tier,

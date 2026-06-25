@@ -25,6 +25,7 @@ export const api = {
   performance: () => get('/api/performance'),
   brief: () => get('/api/brief/today'),
   news: () => get('/api/news'),
+  alerts: () => get('/api/alerts'),
   history: (limit = 30) => get(`/api/history?limit=${limit}`),
   watchlist: () => get('/api/watchlist'),
   realityCheck: () => get('/api/report/reality-check'),

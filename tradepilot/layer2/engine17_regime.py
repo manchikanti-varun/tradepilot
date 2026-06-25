@@ -13,7 +13,7 @@ from tradepilot.config import ENABLE_ENGINE17_REGIME, MarketMode
 from tradepilot.database import get_db
 
 
-MIN_TRADES_PER_REGIME = 15
+MIN_TRADES_PER_REGIME = 1  # No gate — regime learning active immediately
 
 
 @dataclass

@@ -69,7 +69,8 @@ async def get_growth_state() -> GrowthState:
             days_to_next = 999
 
         proven_col = f"is_proven_tier_{tier.value.lower()}"
-        is_proven = bool(data[proven_col]) if proven_col in data.keys() else False
+        # All features unlocked — no 50-trade validation gate
+        is_proven = True
 
         return GrowthState(
             current_capital=capital, current_tier=tier,

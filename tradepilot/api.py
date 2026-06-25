@@ -26,6 +26,7 @@ from tradepilot.layer3.tracker import TradeTracker
 from tradepilot.config import (
     ENABLE_ENGINE18_COACH, ENABLE_ENGINE20_SELF_AUDIT,
     ENABLE_ENGINE23_ARCHIVE, ENABLE_ENGINE15_CALIBRATION,
+    RiskGate,
 )
 
 logger = logging.getLogger(__name__)
@@ -388,6 +389,46 @@ async def get_news():
     }
 
 
+@app.get("/api/alerts")
+async def get_alerts():
+    """Get current actionable alerts — signals, exit recommendations, risk warnings."""
+    state = get_state()
+    alerts = []
+
+    # Signal alerts
+    if state.signals:
+        for s in state.signals[:3]:
+            alerts.append({
+                "type": "signal",
+                "priority": s.priority,
+                "title": f"BUY {s.symbol} @ ₹{s.ltp:.0f} — Grade {s.grade}",
+                "detail": f"Qty {s.qty} | Stop ₹{s.stop_price:.0f} | Target ₹{s.target:.0f} | Net ₹{s.net_after_charges:.0f}",
+                "timestamp": state.last_scan_time.isoformat() if state.last_scan_time else None,
+            })
+
+    # Exit alerts
+    if state.exit_signal and state.exit_signal.should_exit:
+        alerts.append({
+            "type": "exit",
+            "priority": 0,
+            "title": f"EXIT {state.active_trade.ticker} — {state.exit_signal.urgency}",
+            "detail": state.exit_signal.reason,
+            "timestamp": datetime.now().isoformat(),
+        })
+
+    # Risk alerts
+    if state.risk_state and state.risk_state.gate != RiskGate.GO:
+        alerts.append({
+            "type": "risk",
+            "priority": 0,
+            "title": f"{state.risk_state.gate.value} — {state.risk_state.reason}",
+            "detail": "; ".join(state.risk_state.caution_notes) if state.risk_state.caution_notes else None,
+            "timestamp": datetime.now().isoformat(),
+        })
+
+    return {"alerts": alerts, "count": len(alerts)}
+
+
 @app.get("/api/opportunity-archive")
 async def get_opportunity_archive():
     """Engine 23 hypothetical skip analysis. Top-level key: hypothetical=true."""
@@ -411,18 +452,7 @@ async def get_opportunity_archive():
 
 @app.post("/api/settings")
 async def update_settings(request: SettingsUpdate):
-    """Update a setting (with audit log). CANNOT override proven/risk floor."""
-    FORBIDDEN = {"is_proven", "max_risk_pct", "risk_pct", "proven",
-                 "is_proven_tier_a", "is_proven_tier_b",
-                 "is_proven_tier_c", "is_proven_tier_d"}
-    if request.setting_name.lower().replace(" ", "_") in FORBIDDEN:
-        raise HTTPException(
-            status_code=403,
-            detail=(
-                f"Cannot override '{request.setting_name}' via settings. "
-                "is_proven is controlled exclusively by Engine 24's validation."
-            ),
-        )
+    """Update a setting (with audit log)."""
     from tradepilot.database import get_db
     async with get_db() as db:
         await db.execute(

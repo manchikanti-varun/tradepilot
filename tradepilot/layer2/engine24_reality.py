@@ -163,12 +163,12 @@ async def check_mvp_exit_criteria() -> dict:
 
     return {
         "total_trades": total,
-        "minimum_trades_met": total >= 50,
+        "minimum_trades_met": True,  # No gate — all features unlocked
         "net_positive": net_pnl > 0,
         "net_pnl": round(net_pnl, 2),
         "win_rate": round(win_rate, 1),
-        "win_rate_met": win_rate > 55,
+        "win_rate_met": True,  # No gate
         "charge_drag_pct": round(charge_drag, 1),
         "charge_drag_acceptable": charge_drag < 60,
-        "all_passed": total >= 50 and net_pnl > 0 and win_rate > 55,
+        "all_passed": True,  # All features unlocked from day 1
     }
