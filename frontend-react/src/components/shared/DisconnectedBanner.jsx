@@ -24,7 +24,7 @@ export default function DisconnectedBanner() {
           <span>No connection — data is stale</span>
           {lastUpdated && (
             <span className="text-text-muted ml-2">
-              Last updated: {new Date(lastUpdated).toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit', second: '2-digit', hour12: false })}
+              Last updated: {new Date(lastUpdated).toLocaleTimeString('en-IN', { hour: 'numeric', minute: '2-digit', second: '2-digit', hour12: true })}
             </span>
           )}
         </>

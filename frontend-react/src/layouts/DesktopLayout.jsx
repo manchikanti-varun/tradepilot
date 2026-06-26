@@ -99,7 +99,7 @@ function StatusIndicator() {
       <span className="text-[10px] text-text-muted uppercase tracking-wider">{statusLabel}</span>
       {lastUpdated && (
         <span className="text-[10px] text-text-muted font-mono">
-          {new Date(lastUpdated).toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit', second: '2-digit', hour12: false })}
+          {new Date(lastUpdated).toLocaleTimeString('en-IN', { hour: 'numeric', minute: '2-digit', second: '2-digit', hour12: true })}
         </span>
       )}
     </div>
