@@ -1594,9 +1594,19 @@ async def get_trade_insights(user: dict = Depends(get_current_user)):
 
 @app.get("/api/market/countdown")
 async def get_market_countdown():
-    """Feature 16: Market open/close countdown."""
+    """Feature 16: Market open/close countdown. Accounts for weekends and NSE holidays."""
     from zoneinfo import ZoneInfo
+    from tradepilot.config import NSE_HOLIDAYS
     now = datetime.now(ZoneInfo("Asia/Kolkata"))
+
+    # Check if today is a non-trading day (weekend or holiday)
+    is_weekend = now.weekday() >= 5
+    is_holiday = now.strftime("%Y-%m-%d") in NSE_HOLIDAYS
+
+    if is_weekend or is_holiday:
+        reason = "Weekend" if is_weekend else "NSE Holiday"
+        return {"status": "CLOSED", "label": f"Market closed ({reason})", "seconds": 0, "display": "Closed"}
+
     market_open = now.replace(hour=9, minute=15, second=0, microsecond=0)
     market_close = now.replace(hour=15, minute=30, second=0, microsecond=0)
 
