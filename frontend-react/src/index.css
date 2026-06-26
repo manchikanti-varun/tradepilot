@@ -2,17 +2,81 @@
 @tailwind components;
 @tailwind utilities;
 
+:root {
+  --bg-base: #09090B;
+  --bg-surface: #111115;
+  --bg-elevated: #18181C;
+  --bg-overlay: #1E1E24;
+  --border-dim: #1F1F27;
+  --border-mid: #2A2A35;
+  --border-hi: #3A3A48;
+  --text-primary: #F0F0F4;
+  --text-secondary: #8B8B9A;
+  --text-muted: #4A4A58;
+  --buy: #16A34A;
+  --buy-glow: rgba(22,163,74,0.25);
+  --sell: #DC2626;
+  --sell-glow: rgba(220,38,38,0.25);
+  --watch: #D97706;
+  --info: #2563EB;
+  --conflicting: #6B21A8;
+}
+
+/* Prevent white flash on load — bg applied immediately */
+html,
+body {
+  margin: 0;
+  min-height: 100vh;
+  background: var(--bg-base);
+  color: var(--text-primary);
+}
+
+* {
+  box-sizing: border-box;
+}
+
+body {
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+/* Scrollbar */
+::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+::-webkit-scrollbar-thumb {
+  background: var(--border-mid);
+  border-radius: 3px;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: var(--border-hi);
+}
+
+/* iOS safe area */
 @layer utilities {
   .safe-bottom {
     padding-bottom: env(safe-area-inset-bottom, 0px);
   }
 }
 
-body {
-  margin: 0;
-  min-height: 100vh;
-  -webkit-font-smoothing: antialiased;
+/* Focus ring for accessibility — subtle but present */
+:focus-visible {
+  outline: 1px solid var(--info);
+  outline-offset: 2px;
 }
 
-::-webkit-scrollbar { width: 4px; }
-::-webkit-scrollbar-thumb { background: #243044; border-radius: 2px; }
+/* Remove default input appearance on iOS */
+input[type="email"],
+input[type="text"],
+input[type="password"],
+input[type="number"] {
+  -webkit-appearance: none;
+  appearance: none;
+}

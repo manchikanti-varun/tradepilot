@@ -1,277 +1,153 @@
-import { useState, useEffect, useCallback, useRef } from 'react'
-import { api, auth, formatClock, isLoggedIn, getStoredUser, clearTokens, setStoredUser } from './api'
-import { LayoutDashboard, Radio, History, Newspaper, Settings, BarChart3 } from 'lucide-react'
-import Dashboard from './pages/Dashboard'
-import WatchlistPage from './pages/WatchlistPage'
-import ScreenerPage from './pages/ScreenerPage'
-import HistoryPage from './pages/HistoryPage'
-import NewsPage from './pages/NewsPage'
-import StatsPage from './pages/StatsPage'
-import RealityCheckPage from './pages/RealityCheckPage'
-import SettingsPage from './pages/SettingsPage'
-import AuthPage from './pages/AuthPage'
-import SetupPage from './pages/SetupPage'
-import Toast from './components/Toast'
-import NotificationBanner from './components/NotificationBanner'
+import { useEffect } from 'react';
+import { Routes, Route, Navigate, useNavigate } from 'react-router-dom';
+import { useAppStore } from './store/useAppStore';
+import { useSSE } from './hooks/useSSE';
+import { useKeyboard } from './hooks/useKeyboard';
+import { usePoll } from './hooks/usePoll';
+import { isLoggedIn, getStoredUser } from './api/client';
+import { authApi } from './api/auth';
+import { marketApi } from './api/market';
+import { useMarketStore } from './store/useMarketStore';
 
-const NAV_ITEMS = [
-  { id: 'dashboard', label: 'Home', icon: LayoutDashboard },
-  { id: 'watchlist', label: 'Scan', icon: Radio },
-  { id: 'screener', label: 'Screener', icon: BarChart3 },
-  { id: 'news', label: 'News', icon: Newspaper },
-  { id: 'history', label: 'Trades', icon: History },
-  { id: 'settings', label: 'More', icon: Settings },
-]
+import AuthLayout from './layouts/AuthLayout';
+import MobileLayout from './layouts/MobileLayout';
+import DashboardPage from './pages/DashboardPage';
+import SignalsPage from './pages/SignalsPage';
+import MarketsPage from './pages/MarketsPage';
+import HistoryPage from './pages/HistoryPage';
+import StatsPage from './pages/StatsPage';
+import NewsPage from './pages/NewsPage';
+import SettingsPage from './pages/SettingsPage';
+import ChartPage from './pages/ChartPage';
+import CoachPage from './pages/CoachPage';
+import RealityCheckPage from './pages/RealityCheckPage';
+import AuthPage from './pages/AuthPage';
+import SetupPage from './pages/SetupPage';
+import KeyboardShortcuts from './components/shared/KeyboardShortcuts';
+import ToastContainer from './components/shared/Toast';
 
-let notifIdCounter = 0
-function makeNotifId() { return ++notifIdCounter }
+function PrivateRoute({ children }) {
+  const isAuthenticated = useAppStore((s) => s.isAuthenticated);
+  const needsSetup = useAppStore((s) => s.needsSetup);
 
-function formatNow() {
-  return new Date().toLocaleString('en-IN', { hour: 'numeric', minute: '2-digit', hour12: true })
+  if (!isAuthenticated) return <Navigate to="/auth" replace />;
+  if (needsSetup) return <Navigate to="/setup" replace />;
+  return children;
 }
 
 export default function App() {
-  // Auth state
-  const [user, setUser] = useState(getStoredUser())
-  const [isAuthenticated, setIsAuthenticated] = useState(isLoggedIn())
-  const [needsSetup, setNeedsSetup] = useState(false)
-  const [checkingAuth, setCheckingAuth] = useState(true)
-
-  // App state
-  const [page, setPage] = useState('dashboard')
-  const [state, setState] = useState(null)
-  const [growth, setGrowth] = useState(null)
-  const [position, setPosition] = useState(null)
-  const [signals, setSignals] = useState(null)
-  const [perf, setPerf] = useState(null)
-  const [brief, setBrief] = useState(null)
-  const [rejections, setRejections] = useState(null)
-  const [toast, setToast] = useState(null)
-  const [clock, setClock] = useState(formatClock())
-  const [notifications, setNotifications] = useState([])
-
-  // Track previous state for change detection
-  const prevSignals = useRef(null)
-  const prevExitSignal = useRef(null)
-  const prevRiskGate = useRef(null)
-  const prevPosition = useRef(null)
+  const navigate = useNavigate();
+  const isAuthenticated = useAppStore((s) => s.isAuthenticated);
+  const setAuthenticated = useAppStore((s) => s.setAuthenticated);
+  const setUser = useAppStore((s) => s.setUser);
+  const setNeedsSetup = useAppStore((s) => s.setNeedsSetup);
+  const setIsMobile = useAppStore((s) => s.setIsMobile);
+  const isMobile = useAppStore((s) => s.isMobile);
 
   // Check auth on mount
   useEffect(() => {
     async function checkAuth() {
       if (!isLoggedIn()) {
-        setIsAuthenticated(false)
-        setCheckingAuth(false)
-        return
+        setAuthenticated(false);
+        return;
       }
       try {
-        const me = await auth.me()
-        setUser(me.user)
-        setStoredUser(me.user)
-        setIsAuthenticated(true)
-        // Check if Groq key is configured
+        const me = await authApi.me();
+        setUser(me.user);
+        setAuthenticated(true);
         if (!me.config?.has_groq_key) {
-          setNeedsSetup(true)
+          setNeedsSetup(true);
+        } else {
+          setNeedsSetup(false);
         }
       } catch {
-        clearTokens()
-        setIsAuthenticated(false)
+        setAuthenticated(false);
       }
-      setCheckingAuth(false)
     }
-    checkAuth()
+    checkAuth();
 
-    // Listen for forced logout
     const handleLogout = () => {
-      setIsAuthenticated(false)
-      setUser(null)
-    }
-    window.addEventListener('tp_logout', handleLogout)
-    return () => window.removeEventListener('tp_logout', handleLogout)
-  }, [])
+      setAuthenticated(false);
+      setUser(null);
+      navigate('/auth');
+    };
+    window.addEventListener('tp_logout', handleLogout);
+    return () => window.removeEventListener('tp_logout', handleLogout);
+  }, []);
 
-  const handleLogin = (userData) => {
-    setUser(userData)
-    setIsAuthenticated(true)
-    setNeedsSetup(true) // Check credentials after login
-  }
-
-  const handleLogout = () => {
-    clearTokens()
-    setIsAuthenticated(false)
-    setUser(null)
-    setNeedsSetup(false)
-  }
-
-  const handleSetupComplete = () => {
-    setNeedsSetup(false)
-  }
-
-  // --- App logic (same as before) ---
-
-  const addNotification = useCallback((type, title, detail) => {
-    const notif = { id: makeNotifId(), type, title, detail, time: formatNow() }
-    setNotifications(prev => [notif, ...prev].slice(0, 10))
-    if (navigator.vibrate) navigator.vibrate([200, 100, 200])
-    try {
-      const ctx = new (window.AudioContext || window.webkitAudioContext)()
-      const osc = ctx.createOscillator()
-      const gain = ctx.createGain()
-      osc.connect(gain)
-      gain.connect(ctx.destination)
-      osc.frequency.value = type === 'signal' ? 800 : type === 'exit' ? 400 : 600
-      gain.gain.value = 0.1
-      osc.start()
-      osc.stop(ctx.currentTime + 0.15)
-    } catch (e) { /* audio not available */ }
-  }, [])
-
-  const dismissNotification = useCallback((id) => {
-    setNotifications(prev => prev.filter(n => n.id !== id))
-  }, [])
-
-  const dismissAllNotifications = useCallback(() => {
-    setNotifications([])
-  }, [])
-
-  const showToast = (msg, type, data) => {
-    setToast({ msg, type, data })
-    if (type !== 'confirm') setTimeout(() => setToast(null), 4000)
-  }
-
-  const fetchAll = useCallback(async () => {
-    if (!isAuthenticated || needsSetup) return
-    try {
-      const [s, g, p, sig, rej, pf] = await Promise.all([
-        api.state(), api.growth(), api.position(),
-        api.signals(), api.rejections(), api.performance(),
-      ])
-
-      // Detect changes and fire notifications
-      if (sig?.signals?.length > 0 && prevSignals.current !== null) {
-        const prevCount = prevSignals.current?.signals?.length || 0
-        if (sig.signals.length > prevCount || (sig.signals.length > 0 && prevCount === 0)) {
-          const s1 = sig.signals[0]
-          addNotification('signal',
-            `BUY ${s1.symbol} @ ₹${s1.ltp.toFixed(0)} — Grade ${s1.grade}`,
-            `Qty ${s1.qty} | Stop ₹${s1.stop_price.toFixed(0)} | Target ₹${s1.target.toFixed(0)}`
-          )
-        }
-      }
-      if (p?.exit_signal?.should_exit && !prevExitSignal.current?.should_exit) {
-        addNotification('exit', `EXIT ${p.position?.ticker} — ${p.exit_signal.urgency}`, p.exit_signal.reason)
-      }
-      if (s?.risk_gate && prevRiskGate.current && s.risk_gate !== prevRiskGate.current) {
-        if (s.risk_gate === 'HARD_STOP') addNotification('risk', 'HARD STOP — Trading halted', s.risk_reason)
-        else if (s.risk_gate === 'CAUTION') addNotification('risk', 'CAUTION — Size reduced', s.risk_reason)
-      }
-      if (p?.active && !prevPosition.current?.active) {
-        addNotification('signal', `Position opened: ${p.position.ticker}`,
-          `Qty ${p.position.qty} @ ₹${p.position.entry_price.toFixed(0)}`)
-      }
-
-      prevSignals.current = sig
-      prevExitSignal.current = p?.exit_signal
-      prevRiskGate.current = s?.risk_gate
-      prevPosition.current = p
-
-      setState(s); setGrowth(g); setPosition(p)
-      setSignals(sig); setRejections(rej); setPerf(pf)
-    } catch (e) { console.error(e) }
-  }, [isAuthenticated, needsSetup, addNotification])
-
+  // Responsive detection
   useEffect(() => {
-    if (!isAuthenticated || needsSetup) return
-    fetchAll()
-    api.brief().then(setBrief).catch(() => {})
-    const t1 = setInterval(fetchAll, 30000)
-    const t2 = setInterval(() => setClock(formatClock()), 1000)
-    return () => { clearInterval(t1); clearInterval(t2) }
-  }, [fetchAll, isAuthenticated, needsSetup])
+    const check = () => setIsMobile(window.innerWidth < 768);
+    check();
+    window.addEventListener('resize', check);
+    return () => window.removeEventListener('resize', check);
+  }, [setIsMobile]);
 
-  const handleIntake = async (text) => {
-    const res = await api.intake(text)
-    if (res.status === 'confirm_entry' || res.status === 'confirm_exit')
-      showToast(res.message, 'confirm', res.parsed)
-    else if (res.status === 'clarification_needed')
-      showToast(res.message, 'warn')
-    else showToast(res.message, res.status === 'rejected' ? 'error' : 'info')
-  }
+  // SSE connection
+  useSSE();
 
-  const handleConfirm = async (parsed) => {
-    const res = await api.confirmIntake(parsed)
-    showToast(res.message, res.status.includes('error') ? 'error' : 'success')
-    setToast(null)
-    setTimeout(fetchAll, 500)
-  }
-
-  const handleCapitalUpdate = async (amount) => {
+  // Market data polling (secondary data)
+  usePoll(async () => {
+    if (!isAuthenticated) return;
     try {
-      const res = await api.setCapital(amount)
-      if (res.status === 'updated') { showToast(`Capital set to ₹${amount.toLocaleString()}`, 'success'); fetchAll() }
-      else showToast('Failed to update', 'error')
-    } catch { showToast('Network error', 'error') }
-  }
+      const state = await marketApi.state();
+      useMarketStore.getState().updateFromState(state);
+      const countdown = await marketApi.countdown();
+      useMarketStore.getState().setMarketStatus(countdown.status);
+    } catch { /* handled by connection banner */ }
+  }, 10000, { enabled: isAuthenticated });
 
-  // --- Render ---
-
-  if (checkingAuth) {
-    return (
-      <div className="min-h-screen bg-dark-900 flex items-center justify-center">
-        <div className="text-gray-400 text-sm">Loading...</div>
-      </div>
-    )
-  }
-
-  // Not logged in → show auth page
-  if (!isAuthenticated) {
-    return <AuthPage onLogin={handleLogin} />
-  }
-
-  // Logged in but needs API key setup
-  if (needsSetup) {
-    return <SetupPage onComplete={handleSetupComplete} />
-  }
-
-  // Main app
-  const ctx = { state, growth, position, signals, perf, brief, rejections, clock, handleIntake, handleCapitalUpdate, fetchAll, user, onLogout: handleLogout }
+  // Keyboard shortcuts
+  useKeyboard({
+    r: () => { /* Force refresh handled by SSE reconnect */ },
+    m: () => useAppStore.getState().setActiveModal('brief'),
+  });
 
   return (
-    <div className="flex flex-col h-screen bg-dark-900">
-      <NotificationBanner
-        notifications={notifications}
-        onDismiss={dismissNotification}
-        onDismissAll={dismissAllNotifications}
-      />
+    <>
+      <Routes>
+        {/* Public routes */}
+        <Route element={<AuthLayout />}>
+          <Route path="/auth" element={<AuthPage />} />
+          <Route path="/setup" element={<SetupPage />} />
+        </Route>
 
-      <div className="flex-1 overflow-y-auto pb-20">
-        <div className="max-w-lg mx-auto px-4 pt-2">
-          {page === 'dashboard' && <Dashboard {...ctx} />}
-          {page === 'watchlist' && <WatchlistPage />}
-          {page === 'screener' && <ScreenerPage />}
-          {page === 'news' && <NewsPage />}
-          {page === 'stats' && <StatsPage onNavigate={setPage} />}
-          {page === 'reality' && <RealityCheckPage />}
-          {page === 'history' && <HistoryPage />}
-          {page === 'settings' && <SettingsPage growth={growth} onCapitalUpdate={handleCapitalUpdate} user={user} onLogout={handleLogout} />}
-        </div>
-      </div>
+        {/* Desktop: DashboardPage renders its own 3-panel layout */}
+        <Route path="/dashboard" element={<PrivateRoute><DashboardPage /></PrivateRoute>} />
 
-      <nav className="fixed bottom-0 left-0 right-0 bg-dark-800/95 backdrop-blur-md border-t border-dark-600 safe-bottom">
-        <div className="max-w-lg mx-auto flex">
-          {NAV_ITEMS.map(({ id, label, icon: Icon }) => (
-            <button key={id} onClick={() => setPage(id)}
-              className={`flex-1 flex flex-col items-center py-2.5 gap-0.5 transition-colors ${
-                page === id ? 'text-accent-blue' : 'text-gray-500 hover:text-gray-300'
-              }`}>
-              <Icon size={20} strokeWidth={page === id ? 2.5 : 1.5} />
-              <span className="text-[10px] font-medium">{label}</span>
-            </button>
-          ))}
-        </div>
-      </nav>
+        {/* Mobile routes with bottom nav */}
+        {isMobile ? (
+          <Route element={<PrivateRoute><MobileLayout /></PrivateRoute>}>
+            <Route path="/signals" element={<SignalsPage />} />
+            <Route path="/markets" element={<MarketsPage />} />
+            <Route path="/history" element={<HistoryPage />} />
+            <Route path="/stats" element={<StatsPage />} />
+            <Route path="/news" element={<NewsPage />} />
+            <Route path="/settings" element={<SettingsPage />} />
+            <Route path="/chart/:symbol" element={<ChartPage />} />
+            <Route path="/coach" element={<CoachPage />} />
+            <Route path="/reality" element={<RealityCheckPage />} />
+          </Route>
+        ) : (
+          <>
+            <Route path="/signals" element={<PrivateRoute><SignalsPage /></PrivateRoute>} />
+            <Route path="/markets" element={<PrivateRoute><MarketsPage /></PrivateRoute>} />
+            <Route path="/history" element={<PrivateRoute><HistoryPage /></PrivateRoute>} />
+            <Route path="/stats" element={<PrivateRoute><StatsPage /></PrivateRoute>} />
+            <Route path="/news" element={<PrivateRoute><NewsPage /></PrivateRoute>} />
+            <Route path="/settings" element={<PrivateRoute><SettingsPage /></PrivateRoute>} />
+            <Route path="/chart/:symbol" element={<PrivateRoute><ChartPage /></PrivateRoute>} />
+            <Route path="/coach" element={<PrivateRoute><CoachPage /></PrivateRoute>} />
+            <Route path="/reality" element={<PrivateRoute><RealityCheckPage /></PrivateRoute>} />
+          </>
+        )}
 
-      {toast && <Toast toast={toast} onConfirm={handleConfirm} onDismiss={() => setToast(null)} />}
-    </div>
-  )
+        {/* Catch-all */}
+        <Route path="*" element={<Navigate to="/dashboard" replace />} />
+      </Routes>
+
+      <KeyboardShortcuts />
+      <ToastContainer />
+    </>
+  );
 }

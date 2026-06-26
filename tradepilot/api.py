@@ -5,12 +5,11 @@ import time
 import logging
 from datetime import datetime, date, timedelta
 from typing import Optional
-from pathlib import Path
 from contextlib import asynccontextmanager
 
 from fastapi import FastAPI, HTTPException, Request, Depends
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import FileResponse, JSONResponse
+from fastapi.responses import JSONResponse
 from pydantic import BaseModel, Field, field_validator
 
 from tradepilot.logging_config import setup_logging
@@ -62,12 +61,9 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-FRONTEND_DIR = Path(__file__).parent.parent / "frontend"
-
-
 @app.get("/")
-async def serve_frontend():
-    return FileResponse(FRONTEND_DIR / "index.html")
+async def root():
+    return {"status": "ok", "app": "TradePilot AI", "version": "2.0.0", "docs": "/docs"}
 
 
 # ═══════════════════════════════════════════════════════════════
@@ -289,6 +285,14 @@ async def health():
 
 @app.get("/api/state")
 async def get_system_state(user: dict = Depends(get_current_user)):
+    from zoneinfo import ZoneInfo
+    from tradepilot.config import NSE_HOLIDAYS
+
+    now_ist = datetime.now(ZoneInfo("Asia/Kolkata"))
+    is_weekend = now_ist.weekday() >= 5
+    is_holiday = now_ist.strftime("%Y-%m-%d") in NSE_HOLIDAYS
+    is_market_closed_today = is_weekend or is_holiday
+
     state = get_state()
     # Load user-specific growth state
     user_id = user["user_id"]
@@ -313,10 +317,19 @@ async def get_system_state(user: dict = Depends(get_current_user)):
     else:
         capital, tier, progress, drawdown, peak = 20000, "D", 0, 0, 20000
 
+    # Override risk gate on holidays
+    if is_market_closed_today:
+        risk_gate = "CLOSED"
+        risk_reason = "Weekend" if is_weekend else "NSE Holiday"
+    else:
+        risk_gate = state.risk_state.gate.value if state.risk_state else "GO"
+        risk_reason = state.risk_state.reason if state.risk_state else None
+
     return {
-        "market_mode": state.market_mode.value,
-        "risk_gate": state.risk_state.gate.value if state.risk_state else "GO",
-        "risk_reason": state.risk_state.reason if state.risk_state else None,
+        "market_mode": "CLOSED" if is_market_closed_today else state.market_mode.value,
+        "is_market_holiday": is_market_closed_today,
+        "risk_gate": risk_gate,
+        "risk_reason": risk_reason,
         "event_risk": state.event_risk.level if state.event_risk else "NONE",
         "growth_state": {
             "current_capital": capital,
@@ -331,8 +344,33 @@ async def get_system_state(user: dict = Depends(get_current_user)):
 @app.get("/api/brief/today")
 async def get_morning_brief(user: dict = Depends(get_current_user)):
     """Engine 26 morning brief — enhanced with VIX, news mood, yesterday recap."""
+    from zoneinfo import ZoneInfo
+    from tradepilot.config import NSE_HOLIDAYS
+
+    now_ist = datetime.now(ZoneInfo("Asia/Kolkata"))
+    today_str = now_ist.strftime("%Y-%m-%d")
+    is_weekend = now_ist.weekday() >= 5
+    is_holiday = today_str in NSE_HOLIDAYS
+
+    # If market is closed today, return a holiday brief instead of trading advice
+    if is_weekend or is_holiday:
+        reason = "Weekend" if is_weekend else "NSE Holiday"
+        return {
+            "date": today_str,
+            "is_market_holiday": True,
+            "holiday_reason": reason,
+            "capital_snapshot": {"current_capital": 20000, "current_tier": "D", "progress_pct_to_next_tier": 0},
+            "watchlist_summary": {"total_candidates": 0, "top_3_by_score": [], "sector_tilt": "—"},
+            "risk_state": {"mode": "CLOSED", "reason_if_not_go": f"Market closed ({reason})", "trades_remaining_today": 0},
+            "one_line_summary": f"Market is closed today ({reason}). No trading. Use this time to review past trades and plan for the next session.",
+            "ai_summary": None,
+            "vix": 0,
+            "news_mood": "NEUTRAL",
+            "market_outlook": {"weather": "Closed", "advice": f"Market is closed ({reason}). Rest, review your journal, and come back fresh on the next trading day."},
+        }
+
     state = get_state()
-    if state.morning_brief and state.morning_brief.date == datetime.now().strftime("%Y-%m-%d"):
+    if state.morning_brief and state.morning_brief.date == today_str:
         brief = state.morning_brief
     else:
         brief = await generate_morning_brief()
@@ -390,6 +428,57 @@ def _get_market_outlook(vix: float, mood: str) -> dict:
     return {"weather": weather, "advice": advice}
 
 
+def _extract_session_open(candles_5m, symbol: str) -> Optional[float]:
+    """Extract today's session open price (9:15 AM IST candle) from 5m candle data.
+
+    Returns None if:
+    - DataFrame is empty or missing columns
+    - No candles exist for today's IST date
+    - Market hasn't opened yet today (pre-market)
+    """
+    import pandas as pd
+    from zoneinfo import ZoneInfo
+
+    if candles_5m is None or candles_5m.empty:
+        return None
+
+    if "open" not in candles_5m.columns or "timestamp" not in candles_5m.columns:
+        logger.warning("_extract_session_open(%s): missing 'open' or 'timestamp' column", symbol)
+        return None
+
+    try:
+        ist = ZoneInfo("Asia/Kolkata")
+        today_ist = datetime.now(ist).date()
+
+        # Convert timestamp column to IST-aware datetimes for comparison
+        ts_col = pd.to_datetime(candles_5m["timestamp"], utc=True, errors="coerce")
+        if ts_col.isna().all():
+            # Timestamps might already be naive (IST) — try without UTC
+            ts_col = pd.to_datetime(candles_5m["timestamp"], errors="coerce")
+            today_mask = ts_col.dt.date == today_ist
+        else:
+            ts_col_ist = ts_col.dt.tz_convert(ist)
+            today_mask = ts_col_ist.dt.date == today_ist
+
+        today_candles = candles_5m[today_mask]
+
+        if today_candles.empty:
+            logger.debug("_extract_session_open(%s): no candles for today %s", symbol, today_ist)
+            return None
+
+        # First candle of today = session open (9:15 AM)
+        open_val = float(today_candles["open"].iloc[0])
+        if open_val <= 0:
+            logger.warning("_extract_session_open(%s): open_price is %s (non-positive)", symbol, open_val)
+            return None
+
+        return open_val
+
+    except Exception as e:
+        logger.warning("_extract_session_open(%s): failed to extract open price: %s", symbol, e)
+        return None
+
+
 @app.get("/api/signals")
 async def get_signals():
     state = get_state()
@@ -398,7 +487,46 @@ async def get_signals():
 
     # FIX 6.2: Hard server-side block after entry window closes (IST)
     from zoneinfo import ZoneInfo
+    from tradepilot.config import NSE_HOLIDAYS
     now_ist_time = datetime.now(ZoneInfo("Asia/Kolkata"))
+
+    # On holidays/weekends — show last session's signals from history (read-only, no live price fetch)
+    is_closed = now_ist_time.weekday() >= 5 or now_ist_time.strftime("%Y-%m-%d") in NSE_HOLIDAYS
+    if is_closed:
+        async with get_db() as db:
+            rows = await db.execute(
+                "SELECT * FROM signal_history ORDER BY timestamp DESC LIMIT 5"
+            )
+            past_signals = []
+            async for row in rows:
+                past_signals.append({
+                    "priority": 0,
+                    "symbol": row["symbol"],
+                    "sector": row["sector"],
+                    "grade": row["grade"],
+                    "composite": row["composite"],
+                    "ltp": row["ltp"],
+                    "live_price": row["ltp"],
+                    "price_drift_pct": 0,
+                    "is_stale_price": True,
+                    "qty": row["qty"],
+                    "stop_price": row["stop_price"],
+                    "target": row["target"],
+                    "net_after_charges": row["net_after_charges"],
+                    "breakeven_pct": 0,
+                    "risk_reward": row["risk_reward"],
+                    "message": f"{row['symbol']} — from last trading session",
+                    "action": "Market is closed. This is from the last session.",
+                    "generated_at": row["timestamp"],
+                    "expires_in_sec": 0,
+                    "is_expired": True,
+                    "outcome": row["outcome"],
+                    "is_historical": True,
+                })
+        return {"signals": past_signals, "count": len(past_signals), "risk_gate": "CLOSED",
+                "note": "Market is closed today. Showing last session's signals.",
+                "is_historical": True}
+
     if now_ist_time.hour > 14 or (now_ist_time.hour == 14 and now_ist_time.minute > 40):
         return {"signals": [], "count": 0,
                 "risk_gate": state.risk_state.gate.value if state.risk_state else "GO",
@@ -950,6 +1078,11 @@ async def get_alerts(user: dict = Depends(get_current_user)):
 @app.get("/api/market/sectors")
 async def get_sector_heatmap():
     """Sector performance heatmap — computed from watchlist scores."""
+    from zoneinfo import ZoneInfo
+    from tradepilot.config import NSE_HOLIDAYS
+    now_ist = datetime.now(ZoneInfo("Asia/Kolkata"))
+    is_closed = now_ist.weekday() >= 5 or now_ist.strftime("%Y-%m-%d") in NSE_HOLIDAYS
+
     state = get_state()
     sectors: dict[str, dict] = {}
 
@@ -986,17 +1119,28 @@ async def get_sector_heatmap():
         })
 
     result.sort(key=lambda x: x["avg_score"], reverse=True)
-    return {"sectors": result, "total_stocks_scanned": len(state.watchlist_scores)}
+    return {
+        "sectors": result,
+        "total_stocks_scanned": len(state.watchlist_scores),
+        "is_stale": is_closed,
+        "note": "Market is closed. Data is from the last trading session." if is_closed else None,
+        "last_scan": state.last_scan_time.isoformat() if state.last_scan_time else None,
+    }
 
 
 @app.get("/api/market/movers")
 async def get_top_movers():
     """Top gainers and losers from current scan."""
+    from zoneinfo import ZoneInfo
+    from tradepilot.config import NSE_HOLIDAYS
+    now_ist = datetime.now(ZoneInfo("Asia/Kolkata"))
+    is_closed = now_ist.weekday() >= 5 or now_ist.strftime("%Y-%m-%d") in NSE_HOLIDAYS
+
     state = get_state()
     scores = state.watchlist_scores
 
     if not scores:
-        return {"gainers": [], "losers": [], "last_scan": None}
+        return {"gainers": [], "losers": [], "last_scan": None, "is_stale": is_closed}
 
     # Sort by momentum to find gainers/losers
     sorted_by_momentum = sorted(scores, key=lambda s: s.momentum_score, reverse=True)
@@ -1016,6 +1160,8 @@ async def get_top_movers():
         "gainers": gainers,
         "losers": losers,
         "last_scan": state.last_scan_time.isoformat() if state.last_scan_time else None,
+        "is_stale": is_closed,
+        "note": "Market is closed. Data is from the last trading session." if is_closed else None,
     }
 
 
@@ -1113,6 +1259,9 @@ async def get_stock_trading_plan(symbol: str, user: dict = Depends(get_current_u
     support = float(lows.iloc[-30:].min()) if len(lows) >= 30 else day_low
     resistance = float(highs.iloc[-30:].max()) if len(highs) >= 30 else day_high
 
+    # --- Extract today's session open price (9:15 AM IST candle) ---
+    open_price = _extract_session_open(candles_5m, symbol)
+
     # 5-day price history for AI context
     price_history = ""
     if not candles_1d.empty:
@@ -1147,6 +1296,7 @@ async def get_stock_trading_plan(symbol: str, user: dict = Depends(get_current_u
     # Build comprehensive data package for AI
     stock_data = {
         "ltp": round(ltp, 2),
+        "open_price": round(open_price, 2) if open_price is not None else None,
         "day_high": round(day_high, 2),
         "day_low": round(day_low, 2),
         "rsi": round(rsi, 1),

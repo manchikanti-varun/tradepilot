@@ -1,130 +1,110 @@
-import { useState, useEffect } from 'react'
-import { BarChart3, RefreshCw } from 'lucide-react'
-import { ComposedChart, Bar, Line, XAxis, YAxis, Tooltip, ResponsiveContainer, Cell } from 'recharts'
-import { api } from '../api'
+import { useState, useEffect } from 'react';
+import { useParams } from 'react-router-dom';
+import { RefreshCw } from 'lucide-react';
+import { ComposedChart, Bar, Line, XAxis, YAxis, Tooltip, ResponsiveContainer, Cell } from 'recharts';
+import { marketApi } from '../api/market';
+import MonoNumber from '../components/shared/MonoNumber';
+import { SkeletonCard } from '../components/shared/Skeleton';
+import ErrorState from '../components/shared/ErrorState';
 
 const INTERVALS = [
-  { key: '5m', label: '5min' },
-  { key: '15m', label: '15min' },
+  { key: '5m', label: '5m' },
+  { key: '15m', label: '15m' },
   { key: '1h', label: '1H' },
-  { key: '1d', label: 'Daily' },
-]
+  { key: '1d', label: 'D' },
+];
 
-export default function ChartPage({ symbol: initialSymbol }) {
-  const [symbol, setSymbol] = useState(initialSymbol || 'RELIANCE')
-  const [interval, setInterval] = useState('5m')
-  const [data, setData] = useState(null)
-  const [loading, setLoading] = useState(false)
-  const [inputSymbol, setInputSymbol] = useState(initialSymbol || 'RELIANCE')
+export default function ChartPage() {
+  const { symbol: paramSymbol } = useParams();
+  const [symbol, setSymbol] = useState(paramSymbol || 'RELIANCE');
+  const [input, setInput] = useState(paramSymbol || 'RELIANCE');
+  const [interval, setInterval] = useState('5m');
+  const [data, setData] = useState(null);
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState(null);
 
   const fetchChart = async () => {
-    setLoading(true)
+    setLoading(true);
     try {
-      const res = await api.chart(symbol, interval)
-      setData(res)
+      const res = await marketApi.chart(symbol, interval);
+      setData(res);
+      setError(null);
     } catch (e) {
-      console.error('Chart fetch failed', e)
+      setError(e.message);
     }
-    setLoading(false)
-  }
+    setLoading(false);
+  };
 
-  useEffect(() => { fetchChart() }, [symbol, interval])
+  useEffect(() => { fetchChart(); }, [symbol, interval]);
 
-  const handleSymbolSubmit = (e) => {
-    e.preventDefault()
-    setSymbol(inputSymbol.toUpperCase().trim())
-  }
+  const handleSubmit = (e) => {
+    e.preventDefault();
+    setSymbol(input.toUpperCase().trim());
+  };
 
-  // Transform candle data for display
-  const chartData = (data?.candles || []).slice(-80).map(c => ({
+  const chartData = (data?.candles || []).slice(-80).map((c) => ({
     time: c.time?.slice(11, 16) || c.time?.slice(5, 10) || '',
-    open: c.open,
+    close: c.close,
     high: c.high,
     low: c.low,
-    close: c.close,
     volume: c.volume,
-    // For bar coloring
     bullish: c.close >= c.open,
-    body: Math.abs(c.close - c.open),
-    bodyBase: Math.min(c.open, c.close),
-  }))
+  }));
 
-  const lastCandle = chartData.length > 0 ? chartData[chartData.length - 1] : null
-  const firstCandle = chartData.length > 0 ? chartData[0] : null
-  const priceChange = lastCandle && firstCandle ? lastCandle.close - firstCandle.open : 0
-  const pctChange = firstCandle && firstCandle.open > 0 ? (priceChange / firstCandle.open * 100) : 0
+  const lastCandle = chartData[chartData.length - 1];
+
+  if (error && !data) return <div className="p-4"><ErrorState message="Failed to load chart" onRetry={fetchChart} /></div>;
 
   return (
-    <div className="py-4">
+    <div className="p-4">
       {/* Symbol Input */}
-      <form onSubmit={handleSymbolSubmit} className="flex gap-2 mb-3">
-        <input value={inputSymbol} onChange={e => setInputSymbol(e.target.value.toUpperCase())}
-          placeholder="Enter symbol (e.g. SBIN)"
-          className="flex-1 bg-dark-700 border border-dark-600 rounded-xl px-3 py-2.5 text-sm text-white font-mono outline-none focus:border-accent-blue"
-        />
-        <button type="submit" className="px-4 py-2.5 bg-accent-blue text-white rounded-xl text-xs font-bold">
-          Load
-        </button>
+      <form onSubmit={handleSubmit} className="flex gap-2 mb-3">
+        <input value={input} onChange={(e) => setInput(e.target.value.toUpperCase())}
+          placeholder="SYMBOL"
+          className="flex-1 bg-surface border border-border-dim rounded-lg px-3 py-2 text-sm font-mono text-text-primary outline-none focus:border-border-mid" />
+        <button type="submit" className="px-3 py-2 bg-info text-white rounded-lg text-xs font-medium">Load</button>
       </form>
 
-      {/* Symbol Header */}
+      {/* Header */}
       <div className="flex items-center justify-between mb-3">
         <div>
-          <h2 className="text-lg font-extrabold">{symbol}</h2>
-          {lastCandle && (
-            <div className="flex items-center gap-2">
-              <span className="text-sm font-mono">₹{lastCandle.close.toFixed(2)}</span>
-              <span className={`text-xs font-bold ${pctChange >= 0 ? 'text-green-400' : 'text-red-400'}`}>
-                {pctChange >= 0 ? '+' : ''}{pctChange.toFixed(2)}%
-              </span>
-            </div>
-          )}
+          <span className="font-mono text-base font-semibold">{symbol}</span>
+          {lastCandle && <MonoNumber value={` ₹${lastCandle.close.toFixed(2)}`} className="text-sm ml-2" />}
         </div>
-        <button onClick={fetchChart} className="p-2 rounded-lg bg-dark-700">
-          <RefreshCw size={13} className={`text-gray-400 ${loading ? 'animate-spin' : ''}`} />
+        <button onClick={fetchChart} className="p-1.5 rounded bg-overlay border border-border-dim">
+          <RefreshCw size={12} className={`text-text-muted ${loading ? 'animate-spin' : ''}`} />
         </button>
       </div>
 
-      {/* Interval Tabs */}
+      {/* Intervals */}
       <div className="flex gap-1 mb-3">
         {INTERVALS.map(({ key, label }) => (
           <button key={key} onClick={() => setInterval(key)}
-            className={`px-3 py-1.5 rounded-lg text-[10px] font-bold ${
-              interval === key ? 'bg-accent-blue text-white' : 'bg-dark-700 text-gray-500'
-            }`}>
+            className={`px-3 py-1.5 rounded text-[10px] font-medium ${interval === key ? 'bg-info text-white' : 'bg-overlay text-text-muted'}`}>
             {label}
           </button>
         ))}
       </div>
 
-      {/* Price Chart */}
-      {chartData.length > 0 ? (
+      {/* Chart */}
+      {loading && !data ? <SkeletonCard /> : chartData.length > 0 ? (
         <>
-          <div className="bg-dark-700 border border-dark-600 rounded-xl p-3 mb-3">
-            <ResponsiveContainer width="100%" height={220}>
+          <div className="bg-surface border border-border-dim rounded-lg p-3 mb-3">
+            <ResponsiveContainer width="100%" height={200}>
               <ComposedChart data={chartData}>
-                <XAxis dataKey="time" tick={{ fontSize: 8, fill: '#6b7280' }} tickLine={false} axisLine={false}
-                  interval={Math.floor(chartData.length / 6)} />
-                <YAxis domain={['auto', 'auto']} tick={{ fontSize: 9, fill: '#6b7280' }}
-                  tickLine={false} axisLine={false} width={50} tickFormatter={v => `₹${v}`} />
-                <Tooltip content={<CandleTooltip />} />
-                <Line type="monotone" dataKey="close" stroke="#2196F3" strokeWidth={1.5} dot={false} />
-                <Line type="monotone" dataKey="high" stroke="#4ade8033" strokeWidth={0.5} dot={false} />
-                <Line type="monotone" dataKey="low" stroke="#f8717133" strokeWidth={0.5} dot={false} />
+                <XAxis dataKey="time" tick={{ fontSize: 8, fill: '#4A4A58' }} tickLine={false} axisLine={false} interval={Math.floor(chartData.length / 6)} />
+                <YAxis domain={['auto', 'auto']} tick={{ fontSize: 9, fill: '#4A4A58' }} tickLine={false} axisLine={false} width={50} />
+                <Tooltip content={<CTooltip />} />
+                <Line type="monotone" dataKey="close" stroke="#2563EB" strokeWidth={1.5} dot={false} />
               </ComposedChart>
             </ResponsiveContainer>
           </div>
-
-          {/* Volume Chart */}
-          <div className="bg-dark-700 border border-dark-600 rounded-xl p-3">
-            <p className="text-[9px] text-gray-500 mb-2">VOLUME</p>
-            <ResponsiveContainer width="100%" height={60}>
+          <div className="bg-surface border border-border-dim rounded-lg p-3">
+            <ResponsiveContainer width="100%" height={50}>
               <ComposedChart data={chartData}>
-                <XAxis dataKey="time" hide />
-                <YAxis hide />
                 <Bar dataKey="volume" radius={[2, 2, 0, 0]}>
                   {chartData.map((entry, i) => (
-                    <Cell key={i} fill={entry.bullish ? '#4ade8040' : '#f8717140'} />
+                    <Cell key={i} fill={entry.bullish ? 'rgba(22,163,74,0.3)' : 'rgba(220,38,38,0.3)'} />
                   ))}
                 </Bar>
               </ComposedChart>
@@ -132,34 +112,23 @@ export default function ChartPage({ symbol: initialSymbol }) {
           </div>
         </>
       ) : (
-        <div className="bg-dark-700 border border-dark-600 rounded-xl p-12 text-center">
-          <BarChart3 size={28} className="mx-auto text-gray-600 mb-2" />
-          <p className="text-xs text-gray-500">{loading ? 'Loading chart...' : 'No data available'}</p>
+        <div className="bg-surface border border-border-dim rounded-lg p-12 text-center">
+          <p className="text-xs text-text-muted">{loading ? 'Loading...' : 'No data available'}</p>
         </div>
       )}
 
-      {/* Info */}
-      <p className="text-[10px] text-gray-600 text-center mt-3">
-        {data?.count || 0} candles • {interval} interval • Real-time from Angel One
+      <p className="text-[9px] text-text-muted text-center mt-3 font-mono">
+        {data?.count || 0} candles · {interval}
       </p>
     </div>
-  )
+  );
 }
 
-function CandleTooltip({ active, payload }) {
-  if (!active || !payload?.length) return null
-  const d = payload[0]?.payload
-  if (!d) return null
+function CTooltip({ active, payload }) {
+  if (!active || !payload?.length) return null;
   return (
-    <div className="bg-dark-900 border border-dark-500 rounded-lg px-3 py-2 text-[10px]">
-      <p className="text-gray-500">{d.time}</p>
-      <div className="grid grid-cols-2 gap-x-3 mt-1">
-        <span className="text-gray-400">O: <span className="text-white">₹{d.open?.toFixed(1)}</span></span>
-        <span className="text-gray-400">H: <span className="text-green-400">₹{d.high?.toFixed(1)}</span></span>
-        <span className="text-gray-400">L: <span className="text-red-400">₹{d.low?.toFixed(1)}</span></span>
-        <span className="text-gray-400">C: <span className="text-white">₹{d.close?.toFixed(1)}</span></span>
-      </div>
-      <p className="text-gray-500 mt-1">Vol: {d.volume?.toLocaleString()}</p>
+    <div className="bg-elevated border border-border-dim rounded px-2 py-1 text-[10px] font-mono text-text-primary">
+      ₹{payload[0].value?.toFixed(2)}
     </div>
-  )
+  );
 }

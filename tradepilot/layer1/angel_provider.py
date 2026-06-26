@@ -44,7 +44,42 @@ _TOKEN_MAP_LOADED = False
 
 
 def _get_credentials() -> dict:
-    """Get SmartAPI credentials from environment."""
+    """Get SmartAPI credentials — checks DB (user-saved) first, then env vars as fallback."""
+    import sqlite3
+
+    # Try reading from user_credentials table (first user with Angel creds)
+    try:
+        from tradepilot.config import DB_PATH
+        conn = sqlite3.connect(str(DB_PATH))
+        conn.row_factory = sqlite3.Row
+        row = conn.execute(
+            "SELECT angel_api_key, angel_client_id, angel_password, angel_totp_secret "
+            "FROM user_credentials WHERE angel_api_key IS NOT NULL AND angel_api_key != '' LIMIT 1"
+        ).fetchone()
+        conn.close()
+
+        if row and all([row["angel_api_key"], row["angel_client_id"], row["angel_password"], row["angel_totp_secret"]]):
+            # Decrypt if encrypted (credentials are stored encrypted via auth.py)
+            try:
+                from tradepilot.auth import decrypt_credential
+                return {
+                    "api_key": decrypt_credential(row["angel_api_key"]),
+                    "client_id": decrypt_credential(row["angel_client_id"]),
+                    "password": decrypt_credential(row["angel_password"]),
+                    "totp_secret": decrypt_credential(row["angel_totp_secret"]),
+                }
+            except Exception:
+                # If decryption fails, try as plain text (backward compat)
+                return {
+                    "api_key": row["angel_api_key"],
+                    "client_id": row["angel_client_id"],
+                    "password": row["angel_password"],
+                    "totp_secret": row["angel_totp_secret"],
+                }
+    except Exception:
+        pass  # DB not ready yet or table doesn't exist — fall through to env vars
+
+    # Fallback: environment variables
     return {
         "api_key": os.environ.get("ANGEL_API_KEY", ""),
         "client_id": os.environ.get("ANGEL_CLIENT_ID", ""),

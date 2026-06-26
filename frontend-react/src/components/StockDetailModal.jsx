@@ -1,6 +1,10 @@
-import { useState, useEffect } from 'react'
-import { X, TrendingUp, TrendingDown, Minus, Target, Shield, Zap, BarChart3, Brain, CheckCircle2, XCircle, AlertTriangle } from 'lucide-react'
-import { api, formatCurrency } from '../api'
+import { useState, useEffect, useRef } from 'react'
+import { X, TrendingUp, TrendingDown, Minus, Target, Shield, Zap, BarChart3, Brain, CheckCircle2, XCircle, AlertTriangle, Activity } from 'lucide-react'
+import { marketApi } from '../api/market'
+import { formatCurrency } from '../api/client'
+
+// Wrap marketApi.stockPlan to match old usage pattern
+const api = { stockPlan: marketApi.stockPlan }
 
 const TREND_CONFIG = {
   BULLISH: { icon: TrendingUp, color: 'text-green-400', bg: 'bg-green-500/10', label: 'Bullish' },
@@ -74,7 +78,6 @@ export default function StockDetailModal({ symbol, onClose }) {
               const VIcon = v.icon
               return (
                 <div className={`border rounded-xl p-4 ${v.bg}`}>
-                  {/* Final Verdict */}
                   <div className="flex items-center gap-2 mb-3">
                     <VIcon size={18} className={v.color} />
                     <span className={`text-sm font-bold ${v.color}`}>{v.label}</span>
@@ -184,7 +187,7 @@ export default function StockDetailModal({ symbol, onClose }) {
               </div>
             )}
 
-            {/* Indicators */}
+            {/* Indicators (Technical Snapshot) */}
             {plan.indicators && (
               <div className="bg-dark-700 border border-dark-600 rounded-xl p-4">
                 <h3 className="text-xs font-bold text-gray-400 mb-2 flex items-center gap-2">
@@ -207,12 +210,398 @@ export default function StockDetailModal({ symbol, onClose }) {
               </div>
             )}
 
+            {/* ═══════════════════════════════════════════════════════ */}
+            {/* TODAY'S PRICE ACTION — NEW SECTION                     */}
+            {/* ═══════════════════════════════════════════════════════ */}
+            <div className="border-t border-dark-600 my-4" />
+            <TodaysPriceAction plan={plan} />
+            <div className="border-t border-dark-600 my-4" />
+
+            {/* Why This Stock (AI Reasoning) */}
+            {plan.ai_analysis?.reasoning?.length > 0 && (
+              <div className="bg-dark-700 border border-dark-600 rounded-xl p-4">
+                <h3 className="text-xs font-bold text-gray-400 mb-2 flex items-center gap-2">
+                  <Brain size={12} className="text-purple-400" /> Why This Stock
+                </h3>
+                <div className="space-y-1.5">
+                  {plan.ai_analysis.reasoning.map((reason, i) => (
+                    <p key={i} className="text-[11px] text-gray-300 leading-relaxed">{reason}</p>
+                  ))}
+                </div>
+              </div>
+            )}
+
           </div>
         )}
       </div>
     </div>
   )
 }
+
+// ═══════════════════════════════════════════════════════════════
+// TODAY'S PRICE ACTION SECTION
+// ═══════════════════════════════════════════════════════════════
+
+function TodaysPriceAction({ plan }) {
+  const [ltpFlash, setLtpFlash] = useState('')
+  const [highFlash, setHighFlash] = useState('')
+  const [lowFlash, setLowFlash] = useState('')
+  const prevLtp = useRef(null)
+  const prevHigh = useRef(null)
+  const prevLow = useRef(null)
+
+  // Extract data from plan.indicators
+  // API returns: ltp, open_price (nullable), day_high, day_low, vwap, support, resistance
+  const currentLtp = plan?.ltp ?? plan?.indicators?.ltp ?? null
+  const dayHigh = plan?.indicators?.day_high ?? null
+  const dayLow = plan?.indicators?.day_low ?? null
+  // open_price: session open (9:15 AM IST candle). null if market not open yet or data unavailable.
+  const openPrice = plan?.indicators?.open_price ?? null
+  const vwap = plan?.indicators?.vwap ?? null
+
+  // Live update flash detection
+  useEffect(() => {
+    if (prevLtp.current !== null && currentLtp !== null && currentLtp !== prevLtp.current) {
+      setLtpFlash(currentLtp > prevLtp.current ? 'text-green-400' : 'text-red-400')
+      setTimeout(() => setLtpFlash(''), 300)
+    }
+    prevLtp.current = currentLtp
+  }, [currentLtp])
+
+  useEffect(() => {
+    if (prevHigh.current !== null && dayHigh !== null && dayHigh > prevHigh.current) {
+      setHighFlash('text-green-400')
+      setTimeout(() => setHighFlash(''), 300)
+    }
+    prevHigh.current = dayHigh
+  }, [dayHigh])
+
+  useEffect(() => {
+    if (prevLow.current !== null && dayLow !== null && dayLow < prevLow.current) {
+      setLowFlash('text-red-400')
+      setTimeout(() => setLowFlash(''), 300)
+    }
+    prevLow.current = dayLow
+  }, [dayLow])
+
+  // Determine market hours for edge cases
+  const nowIST = new Date(new Date().toLocaleString('en-US', { timeZone: 'Asia/Kolkata' }))
+  const hour = nowIST.getHours()
+  const minute = nowIST.getMinutes()
+  const totalMin = hour * 60 + minute
+  const isPreMarket = totalMin < 555 // before 9:15
+  const isPostMarket = totalMin > 930 // after 15:30
+
+  // Effective open price (use actual if available, else null)
+  const effectiveOpen = openPrice && openPrice > 0 ? openPrice : null
+
+  return (
+    <div className="bg-dark-700 border border-dark-600 rounded-xl p-4">
+      <div className="flex items-center gap-2 mb-3">
+        <Activity size={13} className="text-accent-blue" />
+        <span className="text-[11px] uppercase tracking-[0.1em] text-gray-500 font-semibold">
+          Today's Price Action
+        </span>
+        {isPostMarket && (
+          <span className="text-[9px] bg-dark-600 text-gray-400 px-1.5 py-0.5 rounded ml-auto">FINAL</span>
+        )}
+      </div>
+
+      {/* PART 1 — MOVE FROM OPEN */}
+      <MoveFromOpen
+        openPrice={effectiveOpen}
+        currentLtp={currentLtp}
+        vwap={vwap}
+        isPreMarket={isPreMarket}
+        ltpFlash={ltpFlash}
+      />
+
+      {/* PART 2 — DAY'S RANGE */}
+      <DaysRange
+        dayHigh={dayHigh}
+        dayLow={dayLow}
+        currentLtp={currentLtp}
+        ltpFlash={ltpFlash}
+        highFlash={highFlash}
+        lowFlash={lowFlash}
+      />
+    </div>
+  )
+}
+
+function MoveFromOpen({ openPrice, currentLtp, vwap, isPreMarket, ltpFlash }) {
+  // Pre-market: open not yet available
+  if (isPreMarket) {
+    return (
+      <div className="mb-4">
+        <span className="text-[11px] uppercase tracking-[0.08em] text-gray-500 font-medium block mb-2">From Open</span>
+        <div className="bg-dark-900 rounded-lg p-3 text-center">
+          <p className="text-[11px] text-gray-400">Market not yet open — showing previous close</p>
+          {vwap && vwap > 0 && (
+            <p className="text-xs text-gray-500 mt-1">Previous close (approx): <span className="font-mono text-gray-300">₹{vwap.toFixed(2)}</span></p>
+          )}
+          <p className="text-[10px] text-gray-600 mt-1">Today's open will appear at 9:15 AM IST</p>
+        </div>
+      </div>
+    )
+  }
+
+  // Open price unavailable
+  if (!openPrice || openPrice <= 0) {
+    return (
+      <div className="mb-4">
+        <span className="text-[11px] uppercase tracking-[0.08em] text-gray-500 font-medium block mb-2">From Open</span>
+        <div className="bg-dark-900 rounded-lg p-3 text-center">
+          <p className="text-[11px] text-gray-400">Open price unavailable</p>
+        </div>
+      </div>
+    )
+  }
+
+  if (currentLtp === null) {
+    return (
+      <div className="mb-4">
+        <span className="text-[11px] uppercase tracking-[0.08em] text-gray-500 font-medium block mb-2">From Open</span>
+        <div className="h-12 rounded bg-dark-900 animate-pulse" />
+      </div>
+    )
+  }
+
+  const changeAmount = currentLtp - openPrice
+  const changePct = openPrice > 0 ? (changeAmount / openPrice) * 100 : 0
+  const direction = Math.abs(changePct) < 0.1 ? 'flat' : changeAmount > 0 ? 'up' : 'down'
+
+  const changeColor = direction === 'up' ? 'text-green-400' : direction === 'down' ? 'text-red-400' : 'text-gray-400'
+  const changeSign = changeAmount >= 0 ? '+' : '−'
+  const absAmount = Math.abs(changeAmount)
+  const absPct = Math.abs(changePct)
+
+  // Bar calculations
+  const MAX_PCT = 5.0
+  const fillPct = Math.min(Math.abs(changePct) / MAX_PCT * 50, 50)
+
+  const directionLabel = direction === 'up'
+    ? '↑ Trading above open — bullish intraday momentum'
+    : direction === 'down'
+    ? '↓ Trading below open — bearish intraday pressure'
+    : '→ Flat open — no clear intraday direction yet'
+
+  return (
+    <div className="mb-4">
+      <span className="text-[11px] uppercase tracking-[0.08em] text-gray-500 font-medium block mb-2">From Open</span>
+
+      {/* Open → Current row */}
+      <div className="flex items-center justify-between mb-2">
+        <div className="text-center">
+          <p className="font-mono text-[13px] text-gray-400">₹{openPrice.toFixed(2)}</p>
+          <p className="text-[10px] text-gray-600">opened at</p>
+        </div>
+        <span className="text-gray-600 text-base">→</span>
+        <div className="text-center">
+          <p className={`font-mono text-[13px] text-white transition-colors duration-300 ${ltpFlash}`}>₹{currentLtp.toFixed(2)}</p>
+          <p className="text-[10px] text-gray-600">now</p>
+        </div>
+      </div>
+
+      {/* Change amount and percent */}
+      <div className="text-center mb-2">
+        <span className={`font-mono text-lg font-semibold ${changeColor}`}>
+          {changeSign} ₹{absAmount.toFixed(2)}
+        </span>
+        <span className={`font-mono text-sm ml-2 ${changeColor}`}>
+          ({changeSign}{absPct.toFixed(2)}%)
+        </span>
+      </div>
+
+      {/* Direction label */}
+      <p className="text-[12px] text-gray-400 italic text-center mb-3">{directionLabel}</p>
+
+      {/* Visual bar — open = center */}
+      <div className="relative h-1.5 bg-dark-900 rounded-full overflow-visible">
+        {/* Center marker */}
+        <div className="absolute left-1/2 -translate-x-1/2 -top-0.5 w-0.5 h-2.5 bg-gray-600 rounded-sm z-10" />
+        {/* Fill */}
+        {direction === 'up' && (
+          <div
+            className="absolute top-0 left-1/2 h-full bg-green-400/60 rounded-r-full transition-all duration-300 ease-out"
+            style={{ width: `${fillPct}%` }}
+          />
+        )}
+        {direction === 'down' && (
+          <div
+            className="absolute top-0 h-full bg-red-400/60 rounded-l-full transition-all duration-300 ease-out"
+            style={{ width: `${fillPct}%`, right: '50%' }}
+          />
+        )}
+        {/* Overflow indicator */}
+        {Math.abs(changePct) > MAX_PCT && (
+          <span className={`absolute top-0 text-[9px] font-mono ${direction === 'up' ? 'right-0 text-green-400' : 'left-0 text-red-400'}`}>
+            {direction === 'up' ? '›' : '‹'}
+          </span>
+        )}
+      </div>
+    </div>
+  )
+}
+
+function DaysRange({ dayHigh, dayLow, currentLtp, ltpFlash, highFlash, lowFlash }) {
+  // If data missing, show skeleton
+  if (dayHigh === null || dayLow === null || currentLtp === null) {
+    return (
+      <div className="mt-4">
+        <span className="text-[11px] uppercase tracking-[0.08em] text-gray-500 font-medium block mb-2">Day's Range</span>
+        <div className="h-16 rounded bg-dark-900 animate-pulse" />
+      </div>
+    )
+  }
+
+  const range = dayHigh - dayLow
+  const noRangeYet = range <= 0 || (dayHigh === dayLow)
+
+  // Position calculation
+  let positionPct = range > 0 ? ((currentLtp - dayLow) / range) * 100 : 50
+  let dataWarning = null
+
+  // Clamp and detect inconsistency
+  if (currentLtp < dayLow) {
+    positionPct = 0
+    dataWarning = '⚠ Price data may be delayed'
+  } else if (currentLtp > dayHigh) {
+    positionPct = 100
+    dataWarning = '⚠ Price data may be delayed'
+  }
+  positionPct = Math.max(0, Math.min(100, positionPct))
+
+  // Marker position clamped for visual (2% to 98%)
+  const markerPct = Math.max(2, Math.min(98, positionPct))
+
+  // Distance from high and low
+  const pctFromLow = dayLow > 0 ? ((currentLtp - dayLow) / dayLow) * 100 : 0
+  const pctFromHigh = dayHigh > 0 ? ((dayHigh - currentLtp) / dayHigh) * 100 : 0
+
+  // Position summary
+  let posLabel = ''
+  let posColor = 'text-gray-500'
+  if (positionPct <= 20) {
+    posLabel = 'Near day low — possible support or further weakness'
+    posColor = 'text-red-400'
+  } else if (positionPct <= 40) {
+    posLabel = 'In lower range — below midpoint'
+    posColor = 'text-amber-400'
+  } else if (positionPct <= 60) {
+    posLabel = 'Near midpoint of today\'s range'
+    posColor = 'text-gray-400'
+  } else if (positionPct <= 80) {
+    posLabel = 'In upper range — above midpoint'
+    posColor = 'text-amber-400'
+  } else {
+    posLabel = 'Near day high — momentum or resistance zone'
+    posColor = 'text-green-400'
+  }
+
+  // Circuit detection
+  const isUpperCircuit = positionPct >= 100 && !dataWarning
+  const isLowerCircuit = positionPct <= 0 && !dataWarning
+
+  return (
+    <div className="mt-4">
+      <span className="text-[11px] uppercase tracking-[0.08em] text-gray-500 font-medium block mb-3">Day's Range</span>
+
+      {noRangeYet ? (
+        <div className="text-center py-3">
+          <p className="text-[11px] text-gray-500">No intraday trades yet — market just opened</p>
+        </div>
+      ) : (
+        <>
+          {/* Three values row: Low — Current — High */}
+          <div className="flex items-center justify-between mb-3">
+            <div className="text-center">
+              <p className={`font-mono text-sm transition-colors duration-300 ${lowFlash || 'text-red-400'}`}>
+                ₹{dayLow.toFixed(2)}
+              </p>
+              <p className="text-[10px] text-gray-600">LOW</p>
+            </div>
+            <div className="text-center">
+              <p className={`font-mono text-base font-semibold transition-colors duration-300 ${ltpFlash || 'text-white'}`}>
+                ₹{currentLtp.toFixed(2)}
+              </p>
+              <p className="text-[10px] text-gray-600">NOW</p>
+            </div>
+            <div className="text-center">
+              <p className={`font-mono text-sm transition-colors duration-300 ${highFlash || 'text-green-400'}`}>
+                ₹{dayHigh.toFixed(2)}
+              </p>
+              <p className="text-[10px] text-gray-600">HIGH</p>
+            </div>
+          </div>
+
+          {/* Range bar with gradient */}
+          <div className="relative mb-1">
+            <div
+              className="h-2 rounded-full w-full"
+              style={{ background: 'linear-gradient(to right, #DC2626, #18181C 45%, #18181C 55%, #16A34A)' }}
+            />
+            {/* Current price marker (diamond) */}
+            <div
+              className="absolute top-1/2 -translate-y-1/2 transition-all duration-300 ease-out"
+              style={{ left: `${markerPct}%`, transform: `translateX(-50%) translateY(-50%)` }}
+            >
+              <div className="w-2.5 h-2.5 bg-white rotate-45 rounded-sm shadow-sm" />
+            </div>
+          </div>
+
+          {/* Percentage labels below bar */}
+          <div className="flex justify-between text-[10px] text-gray-600 mb-2">
+            <span>0%</span>
+            <span>100%</span>
+          </div>
+
+          {/* Circuit badges */}
+          {isUpperCircuit && (
+            <div className="flex items-center justify-center gap-1 mb-2">
+              <span className="text-[10px] font-bold text-green-400 bg-green-500/10 border border-green-500/30 px-2 py-0.5 rounded">⚡ Upper circuit</span>
+            </div>
+          )}
+          {isLowerCircuit && (
+            <div className="flex items-center justify-center gap-1 mb-2">
+              <span className="text-[10px] font-bold text-red-400 bg-red-500/10 border border-red-500/30 px-2 py-0.5 rounded">⚡ Lower circuit</span>
+            </div>
+          )}
+
+          {/* Position summary */}
+          <p className={`text-[12px] text-center mb-2 ${posColor}`}>
+            Currently at {positionPct.toFixed(1)}% of today's range
+          </p>
+          <p className={`text-[11px] text-center italic ${posColor}`}>{posLabel}</p>
+
+          {/* Data warning */}
+          {dataWarning && (
+            <p className="text-[11px] text-amber-400 text-center mt-1">{dataWarning}</p>
+          )}
+
+          {/* Distance pills */}
+          <div className="flex items-center justify-center gap-2 mt-3">
+            <span className="inline-flex items-center gap-1 text-[11px] font-mono text-green-400 bg-dark-900 border border-dark-600 rounded px-2 py-0.5">
+              ▲ {pctFromLow.toFixed(2)}% from low
+            </span>
+            <span className="inline-flex items-center gap-1 text-[11px] font-mono text-red-400 bg-dark-900 border border-dark-600 rounded px-2 py-0.5">
+              ▼ {pctFromHigh.toFixed(2)}% from high
+            </span>
+          </div>
+
+          {/* Range not established fallback text */}
+          {range > 0 && range < 0.01 && (
+            <p className="text-[10px] text-gray-600 text-center mt-2">Range not yet established</p>
+          )}
+        </>
+      )}
+    </div>
+  )
+}
+
+// ═══════════════════════════════════════════════════════════════
+// HELPER COMPONENTS (unchanged from original)
+// ═══════════════════════════════════════════════════════════════
 
 function PlanRow({ label, value, color, sub }) {
   return (
