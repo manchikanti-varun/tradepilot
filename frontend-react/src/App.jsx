@@ -15,6 +15,7 @@ import DesktopPageLayout from './layouts/DesktopPageLayout';
 import DashboardPage from './pages/DashboardPage';
 import SignalsPage from './pages/SignalsPage';
 import MarketsPage from './pages/MarketsPage';
+import ScreenerPage from './pages/ScreenerPage';
 import HistoryPage from './pages/HistoryPage';
 import StatsPage from './pages/StatsPage';
 import NewsPage from './pages/NewsPage';
@@ -26,6 +27,7 @@ import AuthPage from './pages/AuthPage';
 import SetupPage from './pages/SetupPage';
 import KeyboardShortcuts from './components/shared/KeyboardShortcuts';
 import ToastContainer from './components/shared/Toast';
+import ModalRenderer from './components/shared/ModalRenderer';
 
 function PrivateRoute({ children }) {
   const isAuthenticated = useAppStore((s) => s.isAuthenticated);
@@ -124,6 +126,7 @@ export default function App() {
             <Route path="/dashboard" element={<DashboardPage />} />
             <Route path="/signals" element={<SignalsPage />} />
             <Route path="/markets" element={<MarketsPage />} />
+            <Route path="/screener" element={<ScreenerPage />} />
             <Route path="/history" element={<HistoryPage />} />
             <Route path="/stats" element={<StatsPage />} />
             <Route path="/news" element={<NewsPage />} />
@@ -136,6 +139,7 @@ export default function App() {
           <Route element={<PrivateRoute><DesktopPageLayout /></PrivateRoute>}>
             <Route path="/signals" element={<SignalsPage />} />
             <Route path="/markets" element={<MarketsPage />} />
+            <Route path="/screener" element={<ScreenerPage />} />
             <Route path="/history" element={<HistoryPage />} />
             <Route path="/stats" element={<StatsPage />} />
             <Route path="/news" element={<NewsPage />} />
@@ -152,6 +156,7 @@ export default function App() {
 
       <KeyboardShortcuts />
       <ToastContainer />
+      <ModalRenderer />
     </>
   );
 }

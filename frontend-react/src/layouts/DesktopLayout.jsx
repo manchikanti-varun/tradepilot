@@ -1,5 +1,5 @@
 import { useNavigate, useLocation } from 'react-router-dom';
-import { LayoutDashboard, Radio, BarChart3, History, Newspaper, Settings, TrendingUp, Scale } from 'lucide-react';
+import { LayoutDashboard, Radio, BarChart3, History, Newspaper, Settings, Scale, Filter } from 'lucide-react';
 import LeftPanel from '../panels/LeftPanel';
 import CenterPanel from '../panels/CenterPanel';
 import RightPanel from '../panels/RightPanel';
@@ -9,6 +9,7 @@ import { useAppStore } from '../store/useAppStore';
 const NAV_ITEMS = [
   { path: '/dashboard', label: 'Dashboard', icon: LayoutDashboard },
   { path: '/markets', label: 'Markets', icon: Radio },
+  { path: '/screener', label: 'Screener', icon: Filter },
   { path: '/news', label: 'News', icon: Newspaper },
   { path: '/history', label: 'History', icon: History },
   { path: '/stats', label: 'Stats', icon: BarChart3 },

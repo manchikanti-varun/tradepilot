@@ -7,6 +7,7 @@ import { SkeletonCard } from '../components/shared/Skeleton';
 import ErrorState from '../components/shared/ErrorState';
 import MonoNumber from '../components/shared/MonoNumber';
 import Badge from '../components/shared/Badge';
+import FavoritesBar from '../components/market/FavoritesBar';
 
 export default function MarketsPage() {
   const [data, setData] = useState(null);
@@ -61,6 +62,9 @@ export default function MarketsPage() {
           <RefreshCw size={12} className={`text-text-muted ${loading ? 'animate-spin' : ''}`} />
         </button>
       </div>
+
+      {/* Favorites */}
+      <FavoritesBar />
 
       {/* Search */}
       <div className="relative mb-3">
