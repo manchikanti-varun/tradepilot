@@ -1,5 +1,6 @@
 import { useState, useEffect, useMemo } from 'react';
-import { Search, RefreshCw, ArrowUpDown } from 'lucide-react';
+import { Search, RefreshCw, ArrowUpDown, Filter } from 'lucide-react';
+import { useNavigate } from 'react-router-dom';
 import { marketApi } from '../api/market';
 import { useAppStore } from '../store/useAppStore';
 import SectionLabel from '../components/shared/SectionLabel';
@@ -10,6 +11,7 @@ import Badge from '../components/shared/Badge';
 import FavoritesBar from '../components/market/FavoritesBar';
 
 export default function MarketsPage() {
+  const navigate = useNavigate();
   const [data, setData] = useState(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
@@ -58,9 +60,15 @@ export default function MarketsPage() {
       {/* Header */}
       <div className="flex items-center justify-between mb-3">
         <SectionLabel>Watchlist {data ? `(${filtered.length})` : ''}</SectionLabel>
-        <button onClick={fetchData} className="p-1.5 rounded bg-overlay border border-border-dim">
-          <RefreshCw size={12} className={`text-text-muted ${loading ? 'animate-spin' : ''}`} />
-        </button>
+        <div className="flex items-center gap-2">
+          <button onClick={() => navigate('/screener')}
+            className="flex items-center gap-1 px-2 py-1 rounded bg-overlay border border-border-dim text-[10px] text-text-secondary hover:text-text-primary">
+            <Filter size={10} /> Screener
+          </button>
+          <button onClick={fetchData} className="p-1.5 rounded bg-overlay border border-border-dim">
+            <RefreshCw size={12} className={`text-text-muted ${loading ? 'animate-spin' : ''}`} />
+          </button>
+        </div>
       </div>
 
       {/* Favorites */}

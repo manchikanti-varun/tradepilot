@@ -131,6 +131,20 @@ export default function SettingsPage() {
           </button>
         </div>
       </CollapsibleSection>
+
+      {/* About */}
+      <div className="bg-surface border border-border-dim rounded-lg p-4 text-center">
+        <p className="text-sm font-medium text-text-primary">TradePilot AI</p>
+        <p className="text-[11px] text-text-secondary mt-1">NSE Intraday Trading Co-Pilot</p>
+        <p className="text-[10px] text-text-muted mt-0.5">Manual execution · AI-powered signals · Zero auto-trading</p>
+        <div className="flex items-center justify-center gap-3 mt-3 text-[9px] text-text-muted">
+          <span>v2.0.0</span>
+          <span>·</span>
+          <span>27 engines</span>
+          <span>·</span>
+          <span>200+ stocks</span>
+        </div>
+      </div>
     </div>
   );
 }

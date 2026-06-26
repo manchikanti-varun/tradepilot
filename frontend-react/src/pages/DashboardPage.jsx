@@ -14,6 +14,8 @@ import QuickStats from '../components/stats/QuickStats';
 import RejectionsBanner from '../components/shared/RejectionsBanner';
 import Week52Card from '../components/market/Week52Card';
 import PremarketCard from '../components/market/PremarketCard';
+import MarketSectors from '../components/market/MarketSectors';
+import SectionLabel from '../components/shared/SectionLabel';
 
 export default function DashboardPage() {
   const isMobile = useAppStore((s) => s.isMobile);
@@ -29,22 +31,55 @@ export default function DashboardPage() {
     );
   }
 
-  // Mobile layout
+  // Mobile layout — enhanced
   return (
     <div className="pb-4">
-      <MarketPulse />
+      {/* Header Strip */}
+      <div className="sticky top-0 z-40 bg-base/95 backdrop-blur-md">
+        <MarketPulse />
+      </div>
+
+      {/* Risk Alert */}
       <RiskBanner />
+
+      {/* Active Position (sticky when in trade) */}
       <PositionCard />
+
+      {/* Trade Input */}
       <IntakeBar />
+
+      {/* Quick Stats Row */}
       <QuickStats />
-      <div className="px-4 py-3">
+
+      {/* Morning Brief */}
+      <div className="px-4 pt-2 pb-3">
         <MorningBrief />
       </div>
+
+      {/* Capital + Tier */}
       <CapitalCard />
+
+      {/* Divider */}
+      <div className="mx-4 my-2 border-t border-border-dim" />
+
+      {/* Signals */}
       <SignalFeed />
+
+      {/* Divider */}
+      <div className="mx-4 my-2 border-t border-border-dim" />
+
+      {/* Market Data */}
+      <div className="px-4 pt-2">
+        <SectionLabel className="block mb-2">Market Overview</SectionLabel>
+      </div>
       <PremarketCard />
       <Week52Card />
+      <MarketSectors />
+
+      {/* Rejections */}
       <RejectionsBanner />
+
+      {/* Modals */}
       <MorningBriefModal />
       <KeyboardShortcuts />
       <ToastContainer />

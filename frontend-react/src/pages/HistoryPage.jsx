@@ -1,4 +1,5 @@
 import { useState, useEffect } from 'react';
+import { useNavigate } from 'react-router-dom';
 import { Download, History, MessageSquare, Send, X, Tag } from 'lucide-react';
 import { historyApi } from '../api/history';
 import SectionLabel from '../components/shared/SectionLabel';
@@ -10,6 +11,7 @@ import EmptyState from '../components/shared/EmptyState';
 import { formatCurrency } from '../api/client';
 
 export default function HistoryPage() {
+  const navigate = useNavigate();
   const [trades, setTrades] = useState(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
@@ -122,6 +124,14 @@ export default function HistoryPage() {
         </div>
       )}
 
+      {/* Quick Links */}
+      {total > 0 && (
+        <div className="grid grid-cols-2 gap-2 mt-4">
+          <QuickLink label="Performance Stats" sublabel="Charts & breakdown" path="/stats" />
+          <QuickLink label="Reality Check" sublabel="You vs Nifty" path="/reality" />
+        </div>
+      )}
+
       {/* Trade Detail Modal */}
       {selectedTrade && (
         <TradeDetailModal
@@ -133,6 +143,17 @@ export default function HistoryPage() {
   );
 }
 
+
+function QuickLink({ label, sublabel, path }) {
+  const navigate = useNavigate();
+  return (
+    <button onClick={() => navigate(path)}
+      className="bg-surface border border-border-dim rounded-lg p-3 text-left hover:border-border-mid transition-colors duration-100">
+      <p className="text-xs font-medium text-text-primary">{label}</p>
+      <p className="text-[9px] text-text-muted mt-0.5">{sublabel}</p>
+    </button>
+  );
+}
 
 function TradeDetailModal({ trade, onClose }) {
   const [notes, setNotes] = useState([]);

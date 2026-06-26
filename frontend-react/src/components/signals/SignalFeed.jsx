@@ -111,11 +111,23 @@ export default function SignalFeed() {
             ))}
           </>
         ) : (
-          <EmptyState
-            icon={Crosshair}
-            title="No signals from last session"
-            subtitle="Signals will appear when market opens"
-          />
+          <div className="space-y-3">
+            <div className="bg-overlay border border-border-dim rounded-lg p-4 text-center">
+              <p className="text-sm text-text-secondary mb-1">
+                {isWeekend ? '📅 Weekend — Market closed' : '📅 Market Holiday'}
+              </p>
+              <p className="text-[11px] text-text-muted mt-2">No signal history available from the last session.</p>
+            </div>
+            <div className="bg-surface border border-border-dim rounded-lg p-3">
+              <p className="text-[10px] uppercase tracking-wider text-text-muted font-medium mb-2">While you wait</p>
+              <ul className="space-y-1.5 text-[11px] text-text-secondary">
+                <li className="flex items-start gap-2"><span className="text-info">→</span> Review your trade history and journal notes</li>
+                <li className="flex items-start gap-2"><span className="text-info">→</span> Check the Reality Check (your returns vs Nifty)</li>
+                <li className="flex items-start gap-2"><span className="text-info">→</span> Read the AI Coach recommendations</li>
+                <li className="flex items-start gap-2"><span className="text-info">→</span> Adjust risk settings if needed</li>
+              </ul>
+            </div>
+          </div>
         )}
       </div>
     );
