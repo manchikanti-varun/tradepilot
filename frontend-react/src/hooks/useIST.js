@@ -22,7 +22,9 @@ export function useIST() {
   const minutes = time.getMinutes();
   const seconds = time.getSeconds();
 
-  const formatted = `${String(hours).padStart(2, '0')}:${String(minutes).padStart(2, '0')}:${String(seconds).padStart(2, '0')}`;
+  const h12 = hours % 12 || 12;
+  const ampm = hours >= 12 ? 'PM' : 'AM';
+  const formatted = `${h12}:${String(minutes).padStart(2, '0')}:${String(seconds).padStart(2, '0')} ${ampm}`;
 
   return {
     time,

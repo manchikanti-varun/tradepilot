@@ -1,5 +1,5 @@
 import { Outlet, useNavigate, useLocation } from 'react-router-dom';
-import { LayoutDashboard, Crosshair, BarChart3, History, Settings } from 'lucide-react';
+import { LayoutDashboard, Crosshair, BarChart3, History, Newspaper, Settings } from 'lucide-react';
 import DisconnectedBanner from '../components/shared/DisconnectedBanner';
 import { useAppStore } from '../store/useAppStore';
 
@@ -7,8 +7,9 @@ const NAV_ITEMS = [
   { path: '/dashboard', label: 'Home', icon: LayoutDashboard },
   { path: '/signals', label: 'Signals', icon: Crosshair },
   { path: '/markets', label: 'Markets', icon: BarChart3 },
+  { path: '/news', label: 'News', icon: Newspaper },
   { path: '/history', label: 'Trades', icon: History },
-  { path: '/settings', label: 'Settings', icon: Settings },
+  { path: '/settings', label: 'More', icon: Settings },
 ];
 
 export default function MobileLayout() {

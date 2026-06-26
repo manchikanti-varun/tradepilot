@@ -1,6 +1,8 @@
-import { Crosshair } from 'lucide-react';
+import { useState, useEffect } from 'react';
+import { Crosshair, Clock } from 'lucide-react';
 import { useMarketStore } from '../../store/useMarketStore';
 import { useMarketHours } from '../../hooks/useMarketHours';
+import { signalsApi } from '../../api/signals';
 import SignalCard from './SignalCard';
 import EmptyState from '../shared/EmptyState';
 import ScanCountdown from '../market/ScanCountdown';
@@ -11,14 +13,29 @@ export default function SignalFeed() {
   const signals = useMarketStore((s) => s.signals);
   const riskGate = useMarketStore((s) => s.riskGate);
   const consecutiveLosses = useMarketStore((s) => s.consecutiveLosses);
-  const { isMarketOpen, isPostMarket, minutesUntilOpen, isWeekend } = useMarketHours();
+  const { isMarketOpen, isPostMarket, isWeekend } = useMarketHours();
+  const [historySignals, setHistorySignals] = useState([]);
+  const [loadingHistory, setLoadingHistory] = useState(false);
+
+  // Fetch last session signals when market is closed
+  useEffect(() => {
+    if (!isMarketOpen) {
+      setLoadingHistory(true);
+      signalsApi.current()
+        .then((data) => {
+          // Backend returns last session's signals when market is closed
+          setHistorySignals(data.signals || []);
+        })
+        .catch(() => {})
+        .finally(() => setLoadingHistory(false));
+    }
+  }, [isMarketOpen]);
 
   const handleViewPlan = (symbol) => {
     useAppStore.getState().setActiveModal({ type: 'stockDetail', symbol });
   };
 
   const handleSkip = (signal) => {
-    // Remove from local display — signal will be filtered server-side on next refresh
     useMarketStore.setState((s) => ({
       signals: s.signals.filter((sig) => sig.symbol !== signal.symbol),
     }));
@@ -40,32 +57,8 @@ export default function SignalFeed() {
     );
   }
 
-  // Pre-market / closed
-  if (!isMarketOpen && !isPostMarket) {
-    const countdownDisplay = isWeekend
-      ? 'Market closed (Weekend)'
-      : `Market opens in ${Math.floor(minutesUntilOpen / 60)}h ${minutesUntilOpen % 60}m`;
-
-    return (
-      <div className="flex flex-col items-center justify-center h-full py-20">
-        <p className="text-lg font-mono text-text-secondary mb-2">{countdownDisplay}</p>
-        <p className="text-xs text-text-muted">Signals will appear after market opens</p>
-      </div>
-    );
-  }
-
-  // Post-market
-  if (isPostMarket) {
-    return (
-      <div className="flex flex-col items-center justify-center h-full py-20">
-        <p className="text-sm text-text-secondary mb-2">Market closed for today</p>
-        <p className="text-xs text-text-muted">Check History for today's trades</p>
-      </div>
-    );
-  }
-
-  // HARD_STOP active
-  if (riskGate === 'HARD_STOP') {
+  // HARD_STOP active (but still show historical if market closed)
+  if (riskGate === 'HARD_STOP' && isMarketOpen) {
     return (
       <div className="p-6">
         <EmptyState
@@ -77,7 +70,58 @@ export default function SignalFeed() {
     );
   }
 
-  // No signals
+  // Market closed — show last session signals
+  if (!isMarketOpen) {
+    const displaySignals = historySignals.length > 0 ? historySignals : signals;
+
+    return (
+      <div className="p-4 space-y-3">
+        <div className="flex items-center justify-between">
+          <SectionLabel>
+            {isPostMarket ? "Today's Signals" : 'Last Session'}
+          </SectionLabel>
+          <div className="flex items-center gap-1.5">
+            <Clock size={11} className="text-text-muted" />
+            <span className="text-[10px] text-text-muted">
+              {isWeekend ? 'Weekend' : isPostMarket ? 'Market closed' : 'Pre-market'}
+            </span>
+          </div>
+        </div>
+
+        {loadingHistory ? (
+          <div className="py-8 flex justify-center">
+            <div className="w-4 h-4 border-2 border-border-mid border-t-info rounded-full animate-spin" />
+          </div>
+        ) : displaySignals.length > 0 ? (
+          <>
+            <div className="bg-overlay border border-border-dim rounded-lg px-3 py-2 mb-2">
+              <p className="text-[11px] text-text-muted">
+                {displaySignals[0]?.is_historical
+                  ? '📋 Showing signals from last trading session (read-only)'
+                  : '📋 Market is closed — these signals are no longer actionable'}
+              </p>
+            </div>
+            {displaySignals.map((signal, i) => (
+              <SignalCard
+                key={`${signal.symbol}-${i}`}
+                signal={{ ...signal, is_expired: true }}
+                onViewPlan={handleViewPlan}
+                onSkip={null}
+              />
+            ))}
+          </>
+        ) : (
+          <EmptyState
+            icon={Crosshair}
+            title="No signals from last session"
+            subtitle="Signals will appear when market opens"
+          />
+        )}
+      </div>
+    );
+  }
+
+  // Market open — no signals found
   if (!signals || signals.length === 0) {
     return (
       <div className="p-6 flex flex-col items-center justify-center h-full">
@@ -89,7 +133,7 @@ export default function SignalFeed() {
     );
   }
 
-  // Active signals
+  // Active signals (market open)
   return (
     <div className="p-4 space-y-3">
       <div className="flex items-center justify-between">

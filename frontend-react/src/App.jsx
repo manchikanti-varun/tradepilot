@@ -11,6 +11,7 @@ import { useMarketStore } from './store/useMarketStore';
 
 import AuthLayout from './layouts/AuthLayout';
 import MobileLayout from './layouts/MobileLayout';
+import DesktopPageLayout from './layouts/DesktopPageLayout';
 import DashboardPage from './pages/DashboardPage';
 import SignalsPage from './pages/SignalsPage';
 import MarketsPage from './pages/MarketsPage';
@@ -113,11 +114,14 @@ export default function App() {
         </Route>
 
         {/* Desktop: DashboardPage renders its own 3-panel layout */}
-        <Route path="/dashboard" element={<PrivateRoute><DashboardPage /></PrivateRoute>} />
+        {!isMobile && (
+          <Route path="/dashboard" element={<PrivateRoute><DashboardPage /></PrivateRoute>} />
+        )}
 
         {/* Mobile routes with bottom nav */}
         {isMobile ? (
           <Route element={<PrivateRoute><MobileLayout /></PrivateRoute>}>
+            <Route path="/dashboard" element={<DashboardPage />} />
             <Route path="/signals" element={<SignalsPage />} />
             <Route path="/markets" element={<MarketsPage />} />
             <Route path="/history" element={<HistoryPage />} />
@@ -129,17 +133,17 @@ export default function App() {
             <Route path="/reality" element={<RealityCheckPage />} />
           </Route>
         ) : (
-          <>
-            <Route path="/signals" element={<PrivateRoute><SignalsPage /></PrivateRoute>} />
-            <Route path="/markets" element={<PrivateRoute><MarketsPage /></PrivateRoute>} />
-            <Route path="/history" element={<PrivateRoute><HistoryPage /></PrivateRoute>} />
-            <Route path="/stats" element={<PrivateRoute><StatsPage /></PrivateRoute>} />
-            <Route path="/news" element={<PrivateRoute><NewsPage /></PrivateRoute>} />
-            <Route path="/settings" element={<PrivateRoute><SettingsPage /></PrivateRoute>} />
-            <Route path="/chart/:symbol" element={<PrivateRoute><ChartPage /></PrivateRoute>} />
-            <Route path="/coach" element={<PrivateRoute><CoachPage /></PrivateRoute>} />
-            <Route path="/reality" element={<PrivateRoute><RealityCheckPage /></PrivateRoute>} />
-          </>
+          <Route element={<PrivateRoute><DesktopPageLayout /></PrivateRoute>}>
+            <Route path="/signals" element={<SignalsPage />} />
+            <Route path="/markets" element={<MarketsPage />} />
+            <Route path="/history" element={<HistoryPage />} />
+            <Route path="/stats" element={<StatsPage />} />
+            <Route path="/news" element={<NewsPage />} />
+            <Route path="/settings" element={<SettingsPage />} />
+            <Route path="/chart/:symbol" element={<ChartPage />} />
+            <Route path="/coach" element={<CoachPage />} />
+            <Route path="/reality" element={<RealityCheckPage />} />
+          </Route>
         )}
 
         {/* Catch-all */}
