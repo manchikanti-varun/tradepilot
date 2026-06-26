@@ -299,6 +299,10 @@ export default function SettingsPage({ growth, onCapitalUpdate, user, onLogout }
             </div>
           </div>
         )}
+
+        {/* Password Change */}
+        <PasswordChangeForm />
+
         <button onClick={onLogout}
           className="w-full mt-3 flex items-center justify-center gap-2 py-2.5 bg-red-500/10 border border-red-500/30 rounded-lg text-sm text-red-400 font-medium hover:bg-red-500/20 transition-colors">
           <LogOut size={14} /> Logout
@@ -359,5 +363,69 @@ function Toggle({ value, onChange }) {
         value ? 'translate-x-5' : 'translate-x-0.5'
       }`} />
     </button>
+  )
+}
+
+function PasswordChangeForm() {
+  const [show, setShow] = useState(false)
+  const [currentPw, setCurrentPw] = useState('')
+  const [newPw, setNewPw] = useState('')
+  const [confirmPw, setConfirmPw] = useState('')
+  const [loading, setLoading] = useState(false)
+  const [msg, setMsg] = useState('')
+  const [msgType, setMsgType] = useState('')
+
+  const handleChange = async () => {
+    if (newPw.length < 8) { setMsg('New password must be at least 8 characters'); setMsgType('error'); return }
+    if (newPw !== confirmPw) { setMsg('Passwords do not match'); setMsgType('error'); return }
+    setLoading(true); setMsg('')
+    try {
+      await auth.changePassword(currentPw, newPw)
+      setMsg('Password changed successfully')
+      setMsgType('success')
+      setCurrentPw(''); setNewPw(''); setConfirmPw('')
+      setTimeout(() => { setShow(false); setMsg('') }, 2000)
+    } catch (err) {
+      setMsg(err.message || 'Failed to change password')
+      setMsgType('error')
+    }
+    setLoading(false)
+  }
+
+  if (!show) {
+    return (
+      <button onClick={() => setShow(true)}
+        className="w-full mt-3 flex items-center justify-center gap-2 py-2 bg-dark-600 border border-dark-500 rounded-lg text-xs text-gray-300 font-medium hover:bg-dark-500 transition-colors">
+        <Lock size={12} /> Change Password
+      </button>
+    )
+  }
+
+  return (
+    <div className="mt-3 space-y-2 bg-dark-900 rounded-lg p-3 border border-dark-500">
+      <p className="text-xs text-gray-300 font-medium">Change Password</p>
+      <input type="password" value={currentPw} onChange={e => setCurrentPw(e.target.value)}
+        placeholder="Current password"
+        className="w-full bg-dark-700 border border-dark-500 rounded-lg px-3 py-2 text-sm text-white outline-none focus:border-accent-blue" />
+      <input type="password" value={newPw} onChange={e => setNewPw(e.target.value)}
+        placeholder="New password (min 8 chars)"
+        className="w-full bg-dark-700 border border-dark-500 rounded-lg px-3 py-2 text-sm text-white outline-none focus:border-accent-blue" />
+      <input type="password" value={confirmPw} onChange={e => setConfirmPw(e.target.value)}
+        placeholder="Confirm new password"
+        className="w-full bg-dark-700 border border-dark-500 rounded-lg px-3 py-2 text-sm text-white outline-none focus:border-accent-blue" />
+      {msg && (
+        <p className={`text-[10px] ${msgType === 'success' ? 'text-green-400' : 'text-red-400'}`}>{msg}</p>
+      )}
+      <div className="flex gap-2">
+        <button onClick={handleChange} disabled={loading || !currentPw || !newPw || !confirmPw}
+          className="flex-1 py-2 bg-accent-blue text-white rounded-lg text-xs font-medium disabled:opacity-50">
+          {loading ? 'Saving...' : 'Update Password'}
+        </button>
+        <button onClick={() => { setShow(false); setMsg('') }}
+          className="px-3 py-2 bg-dark-700 text-gray-400 rounded-lg text-xs">
+          Cancel
+        </button>
+      </div>
+    </div>
   )
 }

@@ -106,6 +106,7 @@ export const auth = {
   credentialsStatus: () => get('/api/auth/credentials-status'),
   saveBrokerCreds: (creds) => post('/api/auth/broker-credentials', creds),
   saveGroqKey: (key) => post('/api/auth/groq-key', { groq_api_key: key }),
+  changePassword: (currentPassword, newPassword) => post('/api/auth/change-password', { current_password: currentPassword, new_password: newPassword }),
 };
 
 // --- App API ---

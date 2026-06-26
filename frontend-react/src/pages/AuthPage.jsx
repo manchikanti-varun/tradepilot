@@ -51,13 +51,13 @@ export default function AuthPage({ onLogin }) {
           {/* Toggle */}
           <div className="flex bg-dark-700 rounded-lg p-1 mb-6">
             <button
-              onClick={() => { setMode('login'); setError('') }}
+              onClick={() => { setMode('login'); setError(''); setEmail(''); setPassword(''); setName('') }}
               className={`flex-1 py-2 rounded-md text-sm font-medium transition-all ${
                 mode === 'login' ? 'bg-accent-blue text-white' : 'text-gray-400'
               }`}
             >Login</button>
             <button
-              onClick={() => { setMode('signup'); setError('') }}
+              onClick={() => { setMode('signup'); setError(''); setEmail(''); setPassword(''); setName('') }}
               className={`flex-1 py-2 rounded-md text-sm font-medium transition-all ${
                 mode === 'signup' ? 'bg-accent-blue text-white' : 'text-gray-400'
               }`}

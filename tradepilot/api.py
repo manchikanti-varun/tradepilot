@@ -153,6 +153,28 @@ async def api_save_groq_key(
     return await save_groq_key(user["user_id"], request)
 
 
+class ChangePasswordRequest(BaseModel):
+    current_password: str = Field(..., min_length=1, max_length=128)
+    new_password: str = Field(..., min_length=8, max_length=128)
+
+
+@app.post("/api/auth/change-password")
+async def api_change_password(request: ChangePasswordRequest, user: dict = Depends(get_current_user)):
+    """Change user password. Requires current password for verification."""
+    from tradepilot.auth import verify_password, hash_password
+    async with get_db() as db:
+        row = await db.execute("SELECT password_hash FROM users WHERE id = ?", (user["user_id"],))
+        data = await row.fetchone()
+        if not data:
+            raise HTTPException(status_code=404, detail="User not found")
+        if not verify_password(request.current_password, data["password_hash"]):
+            raise HTTPException(status_code=401, detail="Current password is incorrect")
+        new_hash = hash_password(request.new_password)
+        await db.execute("UPDATE users SET password_hash = ? WHERE id = ?", (new_hash, user["user_id"]))
+        await db.commit()
+    return {"status": "updated", "message": "Password changed successfully"}
+
+
 @app.get("/api/auth/credentials-status")
 async def api_credentials_status(user: dict = Depends(get_current_user)):
     """Check which credentials are configured.
