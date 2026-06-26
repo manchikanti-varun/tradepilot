@@ -14,6 +14,7 @@ export default function AuthPage() {
   const setNeedsSetup = useAppStore((s) => s.setNeedsSetup);
 
   const [tab, setTab] = useState('login');
+  const [name, setName] = useState('');
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [confirmPw, setConfirmPw] = useState('');
@@ -22,6 +23,7 @@ export default function AuthPage() {
   const [success, setSuccess] = useState(false);
 
   // Validation errors
+  const [nameErr, setNameErr] = useState('');
   const [emailErr, setEmailErr] = useState('');
   const [pwErr, setPwErr] = useState('');
   const [confirmErr, setConfirmErr] = useState('');
@@ -54,10 +56,15 @@ export default function AuthPage() {
 
   function validateSignup() {
     let valid = true;
+    setNameErr('');
     setEmailErr('');
     setPwErr('');
     setConfirmErr('');
 
+    if (!name.trim()) {
+      setNameErr('Name is required');
+      valid = false;
+    }
     if (!email || !email.includes('@') || !email.includes('.')) {
       setEmailErr('Enter a valid email');
       valid = false;
@@ -87,7 +94,7 @@ export default function AuthPage() {
       if (tab === 'login') {
         res = await authApi.login(email, password);
       } else {
-        res = await authApi.signup(email, password, '');
+        res = await authApi.signup(email, password, name.trim());
       }
 
       setTokens(res.access_token, res.refresh_token);
@@ -138,7 +145,12 @@ export default function AuthPage() {
 
   function switchTab(t) {
     setTab(t);
+    setName('');
+    setEmail('');
+    setPassword('');
+    setConfirmPw('');
     setError('');
+    setNameErr('');
     setEmailErr('');
     setPwErr('');
     setConfirmErr('');
@@ -190,6 +202,20 @@ export default function AuthPage() {
 
         {/* Forms */}
         <div className="mt-5 space-y-4">
+          {/* Name (signup only) */}
+          {tab === 'signup' && (
+            <FormField
+              label="Name"
+              type="text"
+              value={name}
+              onChange={(v) => { setName(v); setNameErr(''); }}
+              placeholder="Your name"
+              autoComplete="name"
+              error={nameErr}
+              onKeyDown={handleKeyDown}
+            />
+          )}
+
           {/* Email */}
           <FormField
             label="Email"
