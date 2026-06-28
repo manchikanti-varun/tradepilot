@@ -5,7 +5,7 @@ import { useAppStore } from '../store/useAppStore';
 
 const NAV_ITEMS = [
   { path: '/dashboard', label: 'Dashboard', icon: LayoutDashboard },
-  { path: '/markets', label: 'Markets', icon: Radio },
+  { path: '/markets', label: 'Stocks', icon: Radio },
   { path: '/screener', label: 'Screener', icon: Filter },
   { path: '/news', label: 'News', icon: Newspaper },
   { path: '/history', label: 'History', icon: History },

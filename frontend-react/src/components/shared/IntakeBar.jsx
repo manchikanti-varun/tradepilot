@@ -1,6 +1,7 @@
-import { useState } from 'react';
-import { Plus, Minus, ArrowUpRight, ArrowDownRight } from 'lucide-react';
+import { useState, useEffect, useRef, useMemo } from 'react';
+import { Plus, Minus, Check, Search, ChevronDown } from 'lucide-react';
 import { positionApi } from '../../api/position';
+import { marketApi } from '../../api/market';
 import { useAppStore } from '../../store/useAppStore';
 
 export default function IntakeBar() {
@@ -9,6 +10,46 @@ export default function IntakeBar() {
   const [price, setPrice] = useState('');
   const [qty, setQty] = useState('1');
   const [loading, setLoading] = useState(false);
+  const [expanded, setExpanded] = useState(false);
+
+  // Symbol search dropdown
+  const [stocks, setStocks] = useState([]);
+  const [searchOpen, setSearchOpen] = useState(false);
+  const [searchQuery, setSearchQuery] = useState('');
+  const dropdownRef = useRef(null);
+
+  // Fetch stock list once
+  useEffect(() => {
+    marketApi.watchlist()
+      .then((data) => setStocks(data.stocks || []))
+      .catch(() => {});
+  }, []);
+
+  // Close dropdown on outside click
+  useEffect(() => {
+    const handleClick = (e) => {
+      if (dropdownRef.current && !dropdownRef.current.contains(e.target)) {
+        setSearchOpen(false);
+      }
+    };
+    document.addEventListener('mousedown', handleClick);
+    return () => document.removeEventListener('mousedown', handleClick);
+  }, []);
+
+  // Filtered stocks based on search
+  const filteredStocks = useMemo(() => {
+    if (!searchQuery) return stocks.slice(0, 20);
+    const q = searchQuery.toLowerCase();
+    return stocks.filter((s) =>
+      s.symbol.toLowerCase().includes(q) || s.sector?.toLowerCase().includes(q)
+    ).slice(0, 15);
+  }, [stocks, searchQuery]);
+
+  const selectSymbol = (sym) => {
+    setSymbol(sym);
+    setSearchQuery('');
+    setSearchOpen(false);
+  };
 
   const handleSubmit = async () => {
     if (!symbol.trim() || !price || !qty) return;
@@ -29,6 +70,7 @@ export default function IntakeBar() {
       setSymbol('');
       setPrice('');
       setQty('1');
+      setExpanded(false);
     } catch (e) {
       useAppStore.getState().addToast({ type: 'error', message: e.message });
     }
@@ -41,101 +83,162 @@ export default function IntakeBar() {
     setQty(String(next));
   };
 
+  // Collapsed: just show a button to expand
+  if (!expanded) {
+    return (
+      <div className="px-4 py-2">
+        <button
+          onClick={() => setExpanded(true)}
+          className="w-full py-2.5 rounded-lg border border-border-dim bg-surface text-xs text-text-secondary hover:border-border-mid hover:text-text-primary transition-colors duration-100"
+        >
+          + Log a Trade
+        </button>
+      </div>
+    );
+  }
+
   return (
     <div className="px-4 py-2">
-      <div className="bg-surface border border-border-dim rounded-lg p-3 space-y-2.5">
-        {/* Row 1: BUY/SELL toggle + Symbol */}
-        <div className="flex gap-2">
-          {/* Intent Toggle */}
-          <div className="flex rounded-md overflow-hidden border border-border-dim">
-            <button
-              onClick={() => setIntent('BUY')}
-              className={`flex items-center gap-1 px-3 py-1.5 text-[11px] font-semibold transition-colors duration-100 ${
-                intent === 'BUY'
-                  ? 'bg-buy text-white'
-                  : 'bg-overlay text-text-muted hover:text-text-secondary'
-              }`}
-            >
-              <ArrowUpRight size={11} /> BUY
-            </button>
-            <button
-              onClick={() => setIntent('SELL')}
-              className={`flex items-center gap-1 px-3 py-1.5 text-[11px] font-semibold transition-colors duration-100 ${
-                intent === 'SELL'
-                  ? 'bg-sell text-white'
-                  : 'bg-overlay text-text-muted hover:text-text-secondary'
-              }`}
-            >
-              <ArrowDownRight size={11} /> SELL
-            </button>
-          </div>
-
-          {/* Symbol Input */}
-          <input
-            type="text"
-            value={symbol}
-            onChange={(e) => setSymbol(e.target.value.toUpperCase())}
-            placeholder="SBIN"
-            className="flex-1 bg-base border border-border-dim rounded-md px-3 py-1.5 text-xs font-mono text-text-primary uppercase outline-none focus:border-border-mid placeholder:text-text-muted"
-          />
+      <div className="bg-surface border border-border-dim rounded-lg p-4 space-y-4">
+        {/* BUY / SELL - Large toggle */}
+        <div className="grid grid-cols-2 gap-3">
+          <button
+            onClick={() => setIntent('BUY')}
+            className={`py-3 rounded-lg text-sm font-bold transition-all duration-100 ${
+              intent === 'BUY'
+                ? 'bg-buy text-white shadow-sm shadow-buy/20'
+                : 'bg-overlay border border-border-dim text-text-muted hover:text-text-secondary'
+            }`}
+          >
+            ↑ BUY
+          </button>
+          <button
+            onClick={() => setIntent('SELL')}
+            className={`py-3 rounded-lg text-sm font-bold transition-all duration-100 ${
+              intent === 'SELL'
+                ? 'bg-sell text-white shadow-sm shadow-sell/20'
+                : 'bg-overlay border border-border-dim text-text-muted hover:text-text-secondary'
+            }`}
+          >
+            ↓ SELL
+          </button>
         </div>
 
-        {/* Row 2: Price + Qty + Submit */}
-        <div className="flex gap-2 items-center">
+        {/* Symbol — searchable dropdown */}
+        <div ref={dropdownRef} className="relative">
+          <label className="text-[9px] uppercase text-text-muted tracking-wider block mb-1">Stock Symbol</label>
+          <div
+            className={`flex items-center bg-base border rounded-lg px-3 py-2.5 cursor-pointer transition-colors duration-100 ${
+              searchOpen ? 'border-border-mid' : 'border-border-dim'
+            }`}
+            onClick={() => setSearchOpen(true)}
+          >
+            <Search size={13} className="text-text-muted mr-2 shrink-0" />
+            {searchOpen ? (
+              <input
+                type="text"
+                value={searchQuery}
+                onChange={(e) => setSearchQuery(e.target.value)}
+                placeholder="Search stock..."
+                autoFocus
+                className="flex-1 bg-transparent text-sm font-mono text-text-primary outline-none placeholder:text-text-muted"
+              />
+            ) : (
+              <span className={`flex-1 text-sm font-mono ${symbol ? 'text-text-primary' : 'text-text-muted'}`}>
+                {symbol || 'Select stock...'}
+              </span>
+            )}
+            <ChevronDown size={13} className={`text-text-muted transition-transform duration-100 ${searchOpen ? 'rotate-180' : ''}`} />
+          </div>
+
+          {/* Dropdown */}
+          {searchOpen && (
+            <div className="absolute top-full left-0 right-0 mt-1 bg-elevated border border-border-dim rounded-lg shadow-xl z-50 max-h-48 overflow-y-auto">
+              {filteredStocks.length > 0 ? (
+                filteredStocks.map((s) => (
+                  <button
+                    key={s.symbol}
+                    onClick={() => selectSymbol(s.symbol)}
+                    className="w-full flex items-center justify-between px-3 py-2.5 hover:bg-overlay text-left transition-colors duration-75 border-b border-border-dim last:border-0"
+                  >
+                    <div className="flex items-center gap-2">
+                      <span className="text-xs font-mono font-medium text-text-primary">{s.symbol}</span>
+                      <span className="text-[9px] text-text-muted">{s.sector}</span>
+                    </div>
+                    <span className="text-[10px] font-mono text-text-secondary">₹{s.ltp?.toFixed(1)}</span>
+                  </button>
+                ))
+              ) : (
+                <div className="px-3 py-4 text-center text-[11px] text-text-muted">
+                  No stocks found for "{searchQuery}"
+                </div>
+              )}
+            </div>
+          )}
+        </div>
+
+        {/* Price + Qty side by side */}
+        <div className="grid grid-cols-2 gap-3">
           {/* Price */}
-          <div className="flex-1">
-            <label className="text-[8px] uppercase text-text-muted tracking-wider block mb-0.5">Price ₹</label>
+          <div>
+            <label className="text-[9px] uppercase text-text-muted tracking-wider block mb-1">Price ₹</label>
             <input
               type="number"
               value={price}
               onChange={(e) => setPrice(e.target.value)}
               placeholder="845.00"
               step="0.05"
-              className="w-full bg-base border border-border-dim rounded-md px-3 py-1.5 text-xs font-mono text-text-primary outline-none focus:border-border-mid placeholder:text-text-muted"
+              className="w-full bg-base border border-border-dim rounded-lg px-4 py-3 text-sm font-mono text-text-primary outline-none focus:border-border-mid placeholder:text-text-muted [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none"
             />
           </div>
 
-          {/* Qty with +/- */}
+          {/* Qty */}
           <div>
-            <label className="text-[8px] uppercase text-text-muted tracking-wider block mb-0.5">Qty</label>
-            <div className="flex items-center border border-border-dim rounded-md overflow-hidden">
+            <label className="text-[9px] uppercase text-text-muted tracking-wider block mb-1">Quantity</label>
+            <div className="flex items-center border border-border-dim rounded-lg overflow-hidden bg-base">
               <button
                 onClick={() => adjustQty(-1)}
-                className="px-2 py-1.5 bg-overlay hover:bg-base text-text-muted hover:text-text-primary transition-colors duration-100"
+                className="px-3 py-3 bg-overlay hover:bg-base text-text-muted hover:text-text-primary transition-colors duration-100 border-r border-border-dim"
               >
-                <Minus size={11} />
+                <Minus size={14} />
               </button>
               <input
                 type="number"
                 value={qty}
                 onChange={(e) => setQty(e.target.value)}
                 min="1"
-                className="w-10 bg-base text-center text-xs font-mono text-text-primary outline-none py-1.5 [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none"
+                className="flex-1 bg-base text-center text-sm font-mono text-text-primary outline-none py-3 [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none"
               />
               <button
                 onClick={() => adjustQty(1)}
-                className="px-2 py-1.5 bg-overlay hover:bg-base text-text-muted hover:text-text-primary transition-colors duration-100"
+                className="px-3 py-3 bg-overlay hover:bg-base text-text-muted hover:text-text-primary transition-colors duration-100 border-l border-border-dim"
               >
-                <Plus size={11} />
+                <Plus size={14} />
               </button>
             </div>
           </div>
+        </div>
 
-          {/* Submit */}
-          <div>
-            <label className="text-[8px] uppercase text-text-muted tracking-wider block mb-0.5">&nbsp;</label>
-            <button
-              onClick={handleSubmit}
-              disabled={!symbol.trim() || !price || !qty || loading}
-              className={`px-4 py-1.5 rounded-md text-[11px] font-semibold transition-all duration-100 disabled:opacity-30 disabled:cursor-not-allowed ${
-                intent === 'BUY'
-                  ? 'bg-buy text-white hover:bg-buy/90'
-                  : 'bg-sell text-white hover:bg-sell/90'
-              }`}
-            >
-              {loading ? '...' : intent}
-            </button>
-          </div>
+        {/* Submit + Cancel */}
+        <div className="flex gap-3">
+          <button
+            onClick={handleSubmit}
+            disabled={!symbol.trim() || !price || !qty || loading}
+            className={`flex-1 py-3 rounded-lg text-sm font-semibold flex items-center justify-center gap-2 transition-all duration-100 disabled:opacity-30 disabled:cursor-not-allowed ${
+              intent === 'BUY'
+                ? 'bg-buy text-white hover:bg-buy/90'
+                : 'bg-sell text-white hover:bg-sell/90'
+            }`}
+          >
+            <Check size={14} />
+            {loading ? 'Submitting...' : `Confirm ${intent}`}
+          </button>
+          <button
+            onClick={() => { setExpanded(false); setSymbol(''); setPrice(''); setQty('1'); }}
+            className="px-4 py-3 rounded-lg border border-border-dim text-xs text-text-muted hover:text-text-secondary transition-colors duration-100"
+          >
+            Cancel
+          </button>
         </div>
       </div>
     </div>

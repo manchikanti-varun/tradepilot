@@ -1,10 +1,12 @@
 import { AlertTriangle, ShieldAlert } from 'lucide-react';
 import { useMarketStore } from '../../store/useMarketStore';
+import { useMarketHours } from '../../hooks/useMarketHours';
 import { useState, useEffect } from 'react';
 
 export default function RiskBanner() {
   const riskGate = useMarketStore((s) => s.riskGate);
   const riskReason = useMarketStore((s) => s.riskReason);
+  const { isMarketOpen, isPreMarket } = useMarketHours();
   const [flash, setFlash] = useState(false);
 
   useEffect(() => {
@@ -14,12 +16,24 @@ export default function RiskBanner() {
     }
   }, [riskGate]);
 
+  // Market closed/holiday — don't show "Risk: Normal", it's misleading
+  if (!isMarketOpen && !isPreMarket) {
+    // If risk gate is explicitly set (HARD_STOP/CAUTION) show it, otherwise hide
+    if (riskGate === 'GO' || riskGate === 'CLOSED' || !riskGate) {
+      return null; // Don't show anything — market is closed, risk is irrelevant
+    }
+  }
+
   if (riskGate === 'GO') {
     return (
       <div className="px-4 py-1.5">
         <span className="text-[10px] text-buy uppercase tracking-wider font-medium">Risk: Normal</span>
       </div>
     );
+  }
+
+  if (riskGate === 'CLOSED') {
+    return null; // Backend explicitly says closed — don't show risk banner
   }
 
   if (riskGate === 'CAUTION') {

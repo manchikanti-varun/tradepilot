@@ -28,13 +28,24 @@ export default function MorningBrief() {
   if (!brief) return <SkeletonCard />;
 
   const riskMode = brief.risk_state?.mode || 'GO';
-  const riskVariant = riskMode === 'GO' ? 'buy' : riskMode === 'CAUTION' ? 'watch' : 'sell';
+  const isHoliday = brief.is_market_holiday;
+
+  // On holidays, override risk badge to show CLOSED
+  let displayRiskMode = riskMode;
+  let riskVariant = 'buy';
+  if (isHoliday || riskMode === 'CLOSED') {
+    displayRiskMode = 'CLOSED';
+    riskVariant = 'neutral';
+  } else if (riskMode === 'CAUTION') {
+    riskVariant = 'watch';
+  } else if (riskMode === 'HARD_STOP') {
+    riskVariant = 'sell';
+  }
 
   // Format date for display
   const briefDate = brief.date || brief.generated_at?.slice(0, 10) || null;
   const today = new Date().toISOString().slice(0, 10);
   const isToday = briefDate === today;
-  const isHoliday = brief.is_market_holiday;
 
   let dateLabel = 'Today\'s Brief';
   if (briefDate && !isToday) {
@@ -52,7 +63,7 @@ export default function MorningBrief() {
           <Sun size={13} className="text-watch" />
           <SectionLabel>{dateLabel}</SectionLabel>
         </div>
-        <Badge variant={riskVariant}>{riskMode}</Badge>
+        <Badge variant={riskVariant}>{displayRiskMode}</Badge>
       </div>
 
       {/* Holiday notice */}

@@ -1,5 +1,5 @@
 import { useState, useRef, useEffect } from 'react';
-import { MessageCircle, Send, X, Bot, User } from 'lucide-react';
+import { MessageCircle, Send, X, Bot, User, Copy, Check } from 'lucide-react';
 import { post } from '../../api/client';
 import Spinner from './Spinner';
 
@@ -8,6 +8,7 @@ export default function AskAI() {
   const [messages, setMessages] = useState([]);
   const [input, setInput] = useState('');
   const [loading, setLoading] = useState(false);
+  const [copiedIdx, setCopiedIdx] = useState(null);
   const bottomRef = useRef(null);
 
   useEffect(() => {
@@ -84,14 +85,29 @@ export default function AskAI() {
                 <Bot size={10} className="text-info" />
               </div>
             )}
-            <div className={`max-w-[85%] rounded-lg px-3 py-2 ${
-              msg.role === 'user'
-                ? 'bg-info/15 text-text-primary'
-                : msg.error
-                ? 'bg-sell/10 border border-sell/20 text-text-secondary'
-                : 'bg-overlay border border-border-dim text-text-secondary'
-            }`}>
-              <p className="text-[11px] leading-relaxed whitespace-pre-wrap">{msg.text}</p>
+            <div className="max-w-[85%]">
+              <div className={`rounded-lg px-3 py-2 ${
+                msg.role === 'user'
+                  ? 'bg-info/15 text-text-primary'
+                  : msg.error
+                  ? 'bg-sell/10 border border-sell/20 text-text-secondary'
+                  : 'bg-overlay border border-border-dim text-text-secondary'
+              }`}>
+                <p className="text-[11px] leading-relaxed whitespace-pre-wrap">{msg.text}</p>
+              </div>
+              {/* Copy button for AI responses */}
+              {msg.role === 'ai' && !msg.error && (
+                <button
+                  onClick={() => {
+                    navigator.clipboard.writeText(msg.text);
+                    setCopiedIdx(i);
+                    setTimeout(() => setCopiedIdx(null), 1500);
+                  }}
+                  className="flex items-center gap-1 mt-1 ml-1 text-[9px] text-text-muted hover:text-text-secondary transition-colors duration-100"
+                >
+                  {copiedIdx === i ? <><Check size={9} /> Copied</> : <><Copy size={9} /> Copy</>}
+                </button>
+              )}
             </div>
             {msg.role === 'user' && (
               <div className="w-5 h-5 rounded-full bg-overlay flex items-center justify-center shrink-0 mt-0.5">

@@ -125,13 +125,33 @@ export default function StockDetailModal({ symbol, onClose }) {
             {(() => {
               const t = TREND_CONFIG[plan.trend] || TREND_CONFIG.SIDEWAYS
               const TIcon = t.icon
+              const strength = plan.trend_strength || 'MODERATE'
+              const factors = plan.trend_factors || []
+              const trendScore = plan.trend_score || 0
               return (
                 <div className={`${t.bg} border border-current/20 rounded-lg p-3 ${t.color}`}>
-                  <div className="flex items-center gap-2">
-                    <TIcon size={14} />
-                    <span className="text-xs font-bold">{t.label}</span>
+                  <div className="flex items-center justify-between">
+                    <div className="flex items-center gap-2">
+                      <TIcon size={14} />
+                      <span className="text-xs font-bold">{t.label}</span>
+                    </div>
+                    <span className={`text-[9px] font-mono px-1.5 py-0.5 rounded ${
+                      strength === 'STRONG' ? 'bg-buy/20 text-buy' :
+                      strength === 'MODERATE' ? 'bg-watch/20 text-watch' :
+                      'bg-base/50 text-text-muted'
+                    }`}>{strength}</span>
                   </div>
-                  <p className="text-[10px] opacity-80 mt-1">{plan.trend_description}</p>
+                  <p className="text-[10px] opacity-80 mt-1.5">{plan.trend_description}</p>
+                  {factors.length > 0 && (
+                    <div className="mt-2 pt-2 border-t border-current/10 space-y-1">
+                      {factors.slice(0, 3).map((f, i) => (
+                        <p key={i} className="text-[9px] opacity-60 flex items-start gap-1.5">
+                          <span className="shrink-0 mt-0.5">•</span>
+                          <span>{f}</span>
+                        </p>
+                      ))}
+                    </div>
+                  )}
                 </div>
               )
             })()}

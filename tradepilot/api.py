@@ -479,6 +479,160 @@ def _extract_session_open(candles_5m, symbol: str) -> Optional[float]:
         return None
 
 
+def _compute_enhanced_trend(
+    ai_verdict: str, ai_confidence: str, ai_reasoning: list,
+    ema9: float, ema21: float, macd_hist: float,
+    rsi: float, vwap: float, ltp: float,
+    volume_ratio: float, day_high: float, day_low: float,
+) -> dict:
+    """Multi-factor trend analysis that combines AI verdict with technical indicators.
+    
+    Returns dict with keys: trend, trend_description, trend_strength, trend_factors
+    
+    Scoring system (each factor adds or subtracts points):
+    - AI verdict: strongest signal (+40 to -40)
+    - EMA alignment: +15 to -15
+    - MACD histogram: +10 to -10
+    - RSI zone: +10 to -10
+    - Price vs VWAP: +10 to -10
+    - Volume confirmation: +10 to -5
+    - Day range position: +5 to -5
+    
+    Total range: -95 to +95
+    Bullish: > +20
+    Bearish: < -20
+    Sideways: -20 to +20
+    """
+    score = 0
+    factors = []
+
+    # 1. AI Verdict (strongest weight — it has full context)
+    if ai_verdict == "CONFIRMED_BUY":
+        score += 40
+        factors.append("Both AI models confirm BUY")
+    elif ai_verdict == "LIKELY_BUY":
+        score += 25
+        factors.append("AI suggests BUY (one model)")
+    elif ai_verdict == "CONFIRMED_WAIT":
+        score -= 20
+        factors.append("Both AI models say WAIT")
+    elif ai_verdict == "CONFLICTING":
+        # Don't add/subtract — AI is uncertain
+        factors.append("AI models disagree")
+    # NO_SIGNAL: neutral, no score change
+
+    # 2. EMA Alignment (short-term trend)
+    if ema9 > ema21:
+        gap_pct = ((ema9 - ema21) / ema21) * 100 if ema21 > 0 else 0
+        if gap_pct > 0.5:
+            score += 15
+            factors.append(f"EMA9 above EMA21 by {gap_pct:.2f}% — strong uptrend")
+        else:
+            score += 8
+            factors.append("EMA9 slightly above EMA21 — mild uptrend")
+    elif ema9 < ema21:
+        gap_pct = ((ema21 - ema9) / ema21) * 100 if ema21 > 0 else 0
+        if gap_pct > 0.5:
+            score -= 15
+            factors.append(f"EMA9 below EMA21 by {gap_pct:.2f}% — strong downtrend")
+        else:
+            score -= 8
+            factors.append("EMA9 slightly below EMA21 — mild downtrend")
+
+    # 3. MACD Histogram (momentum)
+    if macd_hist > 0.5:
+        score += 10
+        factors.append("MACD histogram positive — bullish momentum")
+    elif macd_hist > 0:
+        score += 5
+        factors.append("MACD slightly positive")
+    elif macd_hist < -0.5:
+        score -= 10
+        factors.append("MACD histogram negative — bearish momentum")
+    elif macd_hist < 0:
+        score -= 5
+        factors.append("MACD slightly negative")
+
+    # 4. RSI (overbought/oversold/neutral)
+    if rsi > 70:
+        score -= 10
+        factors.append(f"RSI {rsi:.0f} — overbought, reversal risk")
+    elif rsi > 60:
+        score += 5
+        factors.append(f"RSI {rsi:.0f} — bullish zone")
+    elif rsi < 30:
+        score += 10
+        factors.append(f"RSI {rsi:.0f} — oversold, bounce potential")
+    elif rsi < 40:
+        score -= 5
+        factors.append(f"RSI {rsi:.0f} — weak zone")
+    # 40-60 is neutral, no score change
+
+    # 5. Price vs VWAP (institutional interest)
+    if vwap > 0 and ltp > 0:
+        if ltp > vwap * 1.005:
+            score += 10
+            factors.append("Price above VWAP — buyers in control")
+        elif ltp < vwap * 0.995:
+            score -= 10
+            factors.append("Price below VWAP — sellers in control")
+
+    # 6. Volume (confirmation strength)
+    if volume_ratio > 2.0:
+        score += 10
+        factors.append(f"Volume {volume_ratio:.1f}x average — strong participation")
+    elif volume_ratio > 1.3:
+        score += 5
+        factors.append(f"Volume {volume_ratio:.1f}x — above average")
+    elif volume_ratio < 0.5:
+        score -= 5
+        factors.append(f"Volume {volume_ratio:.1f}x — low participation, weak move")
+
+    # 7. Day range position
+    if day_high > day_low and day_high > 0:
+        range_pct = (ltp - day_low) / (day_high - day_low) * 100 if (day_high - day_low) > 0 else 50
+        if range_pct > 80:
+            score += 5
+            factors.append("Near day high — strong intraday momentum")
+        elif range_pct < 20:
+            score -= 5
+            factors.append("Near day low — weak intraday")
+
+    # Determine trend from total score
+    if score > 20:
+        trend = "BULLISH"
+    elif score < -20:
+        trend = "BEARISH"
+    else:
+        trend = "SIDEWAYS"
+
+    # Trend strength
+    abs_score = abs(score)
+    if abs_score > 60:
+        strength = "STRONG"
+    elif abs_score > 35:
+        strength = "MODERATE"
+    else:
+        strength = "WEAK"
+
+    # Build description (top 2 factors + summary)
+    if ai_reasoning:
+        description = ai_reasoning[0]
+    elif factors:
+        top_factors = factors[:2]
+        description = ". ".join(top_factors) + "."
+    else:
+        description = "Mixed signals — no clear directional bias."
+
+    return {
+        "trend": trend,
+        "trend_description": description,
+        "trend_strength": strength,
+        "trend_score": score,
+        "trend_factors": factors[:5],  # Top 5 factors for frontend display
+    }
+
+
 @app.get("/api/signals")
 async def get_signals():
     state = get_state()
@@ -907,7 +1061,7 @@ async def get_watchlist(user: dict = Depends(get_current_user)):
                 "composite": s.composite, "grade": s.grade.value,
                 "ltp": s.ltp, "rsi": s.rsi, "volume_ratio": s.volume_ratio,
             }
-            for s in state.watchlist_scores[:30]
+            for s in state.watchlist_scores
         ],
     }
 
@@ -1378,8 +1532,15 @@ async def get_stock_trading_plan(symbol: str, user: dict = Depends(get_current_u
         "net_profit_target1": round(net_profit, 2),
         "risk_per_share": round(risk_per_share, 2),
         "indicators": stock_data,
-        "trend": "BULLISH" if ema9 > ema21 and macd_hist > 0 else "BEARISH" if ema9 < ema21 and macd_hist < 0 else "SIDEWAYS",
-        "trend_description": ai_result.get("reasoning", [""])[0] if ai_result.get("reasoning") else "",
+        # Enhanced trend: multi-factor scoring that aligns with AI verdict
+        **_compute_enhanced_trend(
+            ai_verdict=ai_result["verdict"],
+            ai_confidence=ai_result["confidence"],
+            ai_reasoning=ai_result.get("reasoning", []),
+            ema9=ema9, ema21=ema21, macd_hist=macd_hist,
+            rsi=rsi, vwap=vwap, ltp=ltp,
+            volume_ratio=volume_ratio, day_high=day_high, day_low=day_low,
+        ),
     }
 
 
@@ -2279,28 +2440,43 @@ async def ai_chat(request: ChatRequest, user: dict = Depends(get_current_user)):
     context = "\n".join(context_parts)
 
     system_prompt = f"""You are TradePilot AI — an expert assistant for NSE intraday trading.
-You have real-time access to the user's portfolio, market data, signals, news, and trade history.
+You are a market expert who understands how political events, policy changes, global news, and economic developments impact Indian stock markets.
 
 CURRENT LIVE DATA:
 {context}
 
-CAPABILITIES:
-- Answer questions about any stock in the NSE universe (200+ stocks tracked)
-- Explain why a signal was generated or rejected
-- Analyze market news impact on specific sectors/stocks
-- Review trading performance and suggest improvements
-- Explain market conditions (VIX, breadth, sector rotation)
-- Help with position sizing, risk management questions
-- Provide entry/exit reasoning for any stock
+WHAT YOU KNOW:
+- Deep knowledge of how Indian markets work — sectors, correlations, event impacts
+- How political events (elections, cabinet changes, policy shifts) affect specific sectors
+- How global events (Fed decisions, oil prices, geopolitics) flow into Indian markets
+- Technical analysis, fundamental concepts, trading psychology
+- The user's actual portfolio, signals, and trade data (shown above)
+
+HOW TO ANSWER:
+1. If the user asks "how will X affect the market" — ANSWER IT using your market knowledge:
+   - Explain which sectors get impacted and why
+   - Reference relevant stocks from the watchlist data if available
+   - Explain historical patterns (e.g., "Defense sector typically rallies on cabinet changes involving defense ministry")
+   - Give actionable insight: what to watch, what sectors to avoid
+
+2. If the user asks about a SPECIFIC event — be clear about what you know vs don't:
+   - If the event IS in your news headlines above → quote it and analyze impact
+   - If the event is NOT in your data → say "I don't have confirmation of this in my news feed, but IF this happens, here's how it would impact markets:" then give expert analysis
+
+3. For stock-specific questions — use the actual data above (prices, RSI, scores)
+
+4. NEVER say "I can't answer that" for market-related questions. You're a market expert.
+   Instead, provide your expert analysis with appropriate caveats.
 
 RULES:
-- Be direct and concise (3-5 sentences for simple questions, more for detailed analysis)
-- Always reference actual data from the context above — don't make up numbers
-- Use ₹ for prices, format in Indian convention
-- If asked about a stock not in your context, say you'll need to run a scan
-- Never tell the user to place an order — you provide analysis only, they execute manually
-- If asked about news, reference the actual headlines from your context
-- For strategy questions, reference their actual win rate and trade history"""
+- Be direct and useful — the user is a trader who needs actionable insight
+- 4-6 sentences for analysis questions, shorter for simple data lookups
+- Use ₹ for prices, Indian number format
+- Reference actual stocks/sectors from your data when relevant
+- If asked to continue, go deeper — provide sector-specific stocks, entry levels, risk factors
+- Never tell user to place orders — analysis only
+- Don't make up that an event HAS happened if it's not in your news. But DO analyze the impact IF it were to happen.
+- Connect political/macro events to specific NSE sectors: Banking (rate changes), IT (global demand), Pharma (FDA/policy), Infra (government spending), Defense (ministry changes), PSU (divestment), Auto (fuel/policy)"""
 
     try:
         url = "https://api.groq.com/openai/v1/chat/completions"
