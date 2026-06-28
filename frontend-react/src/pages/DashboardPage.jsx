@@ -1,3 +1,4 @@
+import { useNavigate } from 'react-router-dom';
 import { useAppStore } from '../store/useAppStore';
 import DesktopLayout from '../layouts/DesktopLayout';
 import MarketPulse from '../components/market/MarketPulse';
@@ -79,10 +80,33 @@ export default function DashboardPage() {
       {/* Rejections */}
       <RejectionsBanner />
 
+      {/* Quick Links (features available on desktop right panel) */}
+      <div className="px-4 pt-3">
+        <SectionLabel className="block mb-2">More</SectionLabel>
+        <div className="grid grid-cols-3 gap-2">
+          <QuickLink label="Coach" path="/coach" />
+          <QuickLink label="Stats" path="/stats" />
+          <QuickLink label="Reality" path="/reality" />
+        </div>
+      </div>
+
       {/* Modals */}
       <MorningBriefModal />
       <KeyboardShortcuts />
       <ToastContainer />
     </div>
+  );
+}
+
+
+function QuickLink({ label, path }) {
+  const navigate = useNavigate();
+  return (
+    <button
+      onClick={() => navigate(path)}
+      className="bg-surface border border-border-dim rounded-md py-2.5 text-center text-[10px] font-medium text-text-secondary hover:border-border-mid hover:text-text-primary transition-colors duration-100"
+    >
+      {label}
+    </button>
   );
 }

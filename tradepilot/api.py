@@ -2148,6 +2148,192 @@ _MIN_MONITOR_INTERVAL_SEC = 30
 DEBUG_ENDPOINTS_ENABLED = True  # Set False for production
 
 
+# ═══════════════════════════════════════════════════════════════
+# AI CHAT — Universal Q&A about markets, stocks, strategy
+# ═══════════════════════════════════════════════════════════════
+
+class ChatRequest(BaseModel):
+    message: str = Field(..., min_length=1, max_length=1000)
+
+
+@app.post("/api/chat")
+async def ai_chat(request: ChatRequest, user: dict = Depends(get_current_user)):
+    """Universal AI assistant — answers questions about markets, stocks, trading strategy.
+    Uses Groq (Llama 3.3 70B) with context about the user's portfolio and market state."""
+    import aiohttp
+
+    groq_key = os.environ.get("GROQ_API_KEY", "")
+    if not groq_key:
+        # Try user-level key
+        try:
+            from tradepilot.auth import get_user_credentials
+            creds = await get_user_credentials(user["user_id"])
+            if creds and creds.get("groq_api_key"):
+                from tradepilot.auth import decrypt_credential
+                groq_key = decrypt_credential(creds["groq_api_key"])
+        except Exception:
+            pass
+
+    if not groq_key:
+        return {"response": "AI not configured. Add your Groq API key in Settings.", "error": True}
+
+    # Build comprehensive context about current state
+    state = get_state()
+    context_parts = []
+
+    # Market state
+    from zoneinfo import ZoneInfo
+    now_ist = datetime.now(ZoneInfo("Asia/Kolkata"))
+    context_parts.append(f"Current time: {now_ist.strftime('%Y-%m-%d %H:%M IST')}")
+    context_parts.append(f"Market mode: {state.market_mode.value if state.market_mode else 'UNKNOWN'}")
+    context_parts.append(f"Risk gate: {state.risk_state.gate.value if state.risk_state else 'GO'}")
+    if state.risk_state and state.risk_state.reason:
+        context_parts.append(f"Risk reason: {state.risk_state.reason}")
+
+    # VIX
+    try:
+        vix = await state.market_data.get_vix()
+        context_parts.append(f"VIX: {vix:.1f}")
+    except Exception:
+        pass
+
+    # Active position
+    if state.active_trade:
+        t = state.active_trade
+        try:
+            ltp = await state.market_data.get_ltp(t.ticker)
+            pnl = t.qty * (ltp - t.entry_price)
+            context_parts.append(f"Active position: {t.ticker} qty {t.qty} entry ₹{t.entry_price} LTP ₹{ltp:.2f} P&L ₹{pnl:.2f}")
+        except Exception:
+            context_parts.append(f"Active position: {t.ticker} qty {t.qty} entry ₹{t.entry_price}")
+
+    # Recent signals
+    if state.signals:
+        sig_lines = []
+        for s in state.signals[:5]:
+            sig_lines.append(f"  {s.symbol}: score {s.composite:.0f}, grade {s.grade}, R:R {s.risk_reward}, stop ₹{s.stop_price:.0f}, target ₹{s.target:.0f}")
+        context_parts.append("Current signals:\n" + "\n".join(sig_lines))
+
+    # Growth / Capital
+    if state.growth_state:
+        context_parts.append(f"Capital: ₹{state.growth_state.current_capital:,.0f}, Tier {state.growth_state.current_tier.value}, Progress {state.growth_state.progress_pct_to_next_tier:.0f}%")
+
+    # Top watchlist scores
+    if state.watchlist_scores:
+        top5 = state.watchlist_scores[:5]
+        wl_lines = [f"  {s.symbol} ({s.sector}): score {s.composite:.0f}, grade {s.grade.value}, RSI {s.rsi:.0f}, LTP ₹{s.ltp:.1f}" for s in top5]
+        context_parts.append(f"Top watchlist stocks ({len(state.watchlist_scores)} total scanned):\n" + "\n".join(wl_lines))
+
+    # News headlines + sentiment
+    try:
+        from tradepilot.layer2.engine27_news import _news_cache
+        if _news_cache and _news_cache.items:
+            context_parts.append(f"Market news mood: {_news_cache.overall_mood} (score {_news_cache.mood_score}/100)")
+            news_lines = []
+            for item in _news_cache.items[:8]:
+                news_lines.append(f"  [{item.sentiment}] {item.title} — {item.source}")
+            context_parts.append("Recent headlines:\n" + "\n".join(news_lines))
+    except Exception:
+        pass
+
+    # Trade history summary
+    try:
+        from tradepilot.database import get_db
+        async with get_db() as db:
+            row = await db.execute(
+                "SELECT COUNT(*) as total, SUM(CASE WHEN was_profitable=1 THEN 1 ELSE 0 END) as wins, "
+                "SUM(net_pnl) as total_pnl FROM trades WHERE status='CLOSED'"
+            )
+            stats = await row.fetchone()
+            if stats and stats["total"] > 0:
+                wr = (stats["wins"] / stats["total"]) * 100
+                context_parts.append(f"Trade history: {stats['total']} trades, {wr:.0f}% win rate, net P&L ₹{stats['total_pnl']:.2f}")
+
+            # Last 3 trades
+            rows = await db.execute(
+                "SELECT ticker, net_pnl, was_profitable, date FROM trades WHERE status='CLOSED' ORDER BY exit_time DESC LIMIT 3"
+            )
+            recent = []
+            async for r in rows:
+                outcome = "WIN" if r["was_profitable"] else "LOSS"
+                recent.append(f"  {r['ticker']} {outcome} ₹{r['net_pnl']:.2f} ({r['date']})")
+            if recent:
+                context_parts.append("Last 3 trades:\n" + "\n".join(recent))
+    except Exception:
+        pass
+
+    # Sector performance from watchlist
+    if state.watchlist_scores:
+        sector_map = {}
+        for s in state.watchlist_scores:
+            if s.sector not in sector_map:
+                sector_map[s.sector] = {"count": 0, "avg_score": 0}
+            sector_map[s.sector]["count"] += 1
+            sector_map[s.sector]["avg_score"] += s.composite
+        sector_lines = []
+        for name, data in sorted(sector_map.items(), key=lambda x: x[1]["avg_score"] / max(x[1]["count"], 1), reverse=True)[:5]:
+            avg = data["avg_score"] / data["count"]
+            sector_lines.append(f"  {name}: avg score {avg:.0f} ({data['count']} stocks)")
+        context_parts.append("Top sectors today:\n" + "\n".join(sector_lines))
+
+    context = "\n".join(context_parts)
+
+    system_prompt = f"""You are TradePilot AI — an expert assistant for NSE intraday trading.
+You have real-time access to the user's portfolio, market data, signals, news, and trade history.
+
+CURRENT LIVE DATA:
+{context}
+
+CAPABILITIES:
+- Answer questions about any stock in the NSE universe (200+ stocks tracked)
+- Explain why a signal was generated or rejected
+- Analyze market news impact on specific sectors/stocks
+- Review trading performance and suggest improvements
+- Explain market conditions (VIX, breadth, sector rotation)
+- Help with position sizing, risk management questions
+- Provide entry/exit reasoning for any stock
+
+RULES:
+- Be direct and concise (3-5 sentences for simple questions, more for detailed analysis)
+- Always reference actual data from the context above — don't make up numbers
+- Use ₹ for prices, format in Indian convention
+- If asked about a stock not in your context, say you'll need to run a scan
+- Never tell the user to place an order — you provide analysis only, they execute manually
+- If asked about news, reference the actual headlines from your context
+- For strategy questions, reference their actual win rate and trade history"""
+
+    try:
+        url = "https://api.groq.com/openai/v1/chat/completions"
+        payload = {
+            "model": "llama-3.3-70b-versatile",
+            "messages": [
+                {"role": "system", "content": system_prompt},
+                {"role": "user", "content": request.message},
+            ],
+            "temperature": 0.4,
+            "max_tokens": 500,
+        }
+        headers = {"Authorization": f"Bearer {groq_key}", "Content-Type": "application/json"}
+
+        async with aiohttp.ClientSession() as session:
+            async with session.post(url, json=payload, headers=headers, timeout=aiohttp.ClientTimeout(total=20)) as resp:
+                if resp.status != 200:
+                    error_body = await resp.text()
+                    logger.warning("Chat API error %d: %s", resp.status, error_body[:200])
+                    return {"response": "AI is temporarily unavailable. Try again in a moment.", "error": True}
+                result = await resp.json()
+
+        text = result.get("choices", [{}])[0].get("message", {}).get("content", "")
+        if not text:
+            return {"response": "No response from AI.", "error": True}
+
+        return {"response": text, "error": False}
+
+    except Exception as e:
+        logger.warning("Chat endpoint failed: %s", str(e)[:200])
+        return {"response": "Failed to get AI response. Check your connection.", "error": True}
+
+
 @app.post("/api/scan")
 async def trigger_scan():
     """DEV ONLY. Rate-limited. Respects Engine 11 gate."""

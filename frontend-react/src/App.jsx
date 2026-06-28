@@ -28,6 +28,7 @@ import SetupPage from './pages/SetupPage';
 import KeyboardShortcuts from './components/shared/KeyboardShortcuts';
 import ToastContainer from './components/shared/Toast';
 import ModalRenderer from './components/shared/ModalRenderer';
+import AskAI from './components/shared/AskAI';
 
 function PrivateRoute({ children }) {
   const isAuthenticated = useAppStore((s) => s.isAuthenticated);
@@ -157,6 +158,7 @@ export default function App() {
       <KeyboardShortcuts />
       <ToastContainer />
       <ModalRenderer />
+      <AskAI />
     </>
   );
 }

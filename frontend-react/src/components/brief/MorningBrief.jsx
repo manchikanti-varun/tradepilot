@@ -30,15 +30,48 @@ export default function MorningBrief() {
   const riskMode = brief.risk_state?.mode || 'GO';
   const riskVariant = riskMode === 'GO' ? 'buy' : riskMode === 'CAUTION' ? 'watch' : 'sell';
 
+  // Format date for display
+  const briefDate = brief.date || brief.generated_at?.slice(0, 10) || null;
+  const today = new Date().toISOString().slice(0, 10);
+  const isToday = briefDate === today;
+  const isHoliday = brief.is_market_holiday;
+
+  let dateLabel = 'Today\'s Brief';
+  if (briefDate && !isToday) {
+    // Show the actual date if it's not today
+    const d = new Date(briefDate + 'T00:00:00');
+    dateLabel = `Brief · ${d.toLocaleDateString('en-IN', { day: 'numeric', month: 'short' })}`;
+  } else if (isHoliday) {
+    dateLabel = `Holiday Brief · ${brief.holiday_reason || 'Market Closed'}`;
+  }
+
   return (
     <Card>
       <div className="flex items-center justify-between mb-3">
         <div className="flex items-center gap-2">
           <Sun size={13} className="text-watch" />
-          <SectionLabel>Today's Brief</SectionLabel>
+          <SectionLabel>{dateLabel}</SectionLabel>
         </div>
         <Badge variant={riskVariant}>{riskMode}</Badge>
       </div>
+
+      {/* Holiday notice */}
+      {isHoliday && (
+        <div className="bg-overlay border border-border-dim rounded-md px-3 py-2 mb-3">
+          <p className="text-[10px] text-text-muted">
+            📅 {brief.holiday_reason || 'Market Holiday'} — No trading today
+          </p>
+        </div>
+      )}
+
+      {/* Stale brief warning */}
+      {!isToday && !isHoliday && briefDate && (
+        <div className="bg-watch/10 border border-watch/20 rounded-md px-3 py-1.5 mb-3">
+          <p className="text-[10px] text-watch">
+            ⚠ This brief is from {new Date(briefDate + 'T00:00:00').toLocaleDateString('en-IN', { weekday: 'short', day: 'numeric', month: 'short' })} — not today
+          </p>
+        </div>
+      )}
 
       <p className="text-[13px] text-text-primary leading-relaxed mb-3">{brief.one_line_summary}</p>
 

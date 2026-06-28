@@ -1,4 +1,5 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useMemo } from 'react';
+import { useNavigate } from 'react-router-dom';
 import { settingsApi } from '../../api/settings';
 import { usePoll } from '../../hooks/usePoll';
 import NewsItem from './NewsItem';
@@ -10,6 +11,7 @@ import ErrorState from '../shared/ErrorState';
 export default function NewsFeed({ compact = false }) {
   const [news, setNews] = useState(null);
   const [error, setError] = useState(null);
+  const navigate = useNavigate();
 
   const fetchNews = async () => {
     try {
@@ -23,11 +25,16 @@ export default function NewsFeed({ compact = false }) {
 
   usePoll(fetchNews, 300000); // 5 min
 
+  // Always sort by recency — consistent order everywhere
+  const sortedItems = useMemo(() => {
+    if (!news?.items) return [];
+    return [...news.items].sort((a, b) => (a.hours_ago ?? 999) - (b.hours_ago ?? 999));
+  }, [news]);
+
   if (error && !news) return <ErrorState message="Failed to load news" onRetry={fetchNews} />;
   if (!news) return <SkeletonCard />;
 
-  const items = news.items || [];
-  const displayItems = compact ? items.slice(0, 6) : items;
+  const displayItems = compact ? sortedItems.slice(0, 8) : sortedItems;
 
   return (
     <div>
@@ -41,10 +48,13 @@ export default function NewsFeed({ compact = false }) {
           {displayItems.map((item, i) => (
             <NewsItem key={i} item={item} />
           ))}
-          {compact && items.length > 6 && (
-            <p className="text-[10px] text-text-muted text-center mt-2">
-              +{items.length - 6} more headlines
-            </p>
+          {compact && sortedItems.length > 8 && (
+            <button
+              onClick={() => navigate('/news')}
+              className="w-full text-center text-[10px] text-info hover:underline mt-3 py-2"
+            >
+              View all {sortedItems.length} headlines →
+            </button>
           )}
         </div>
       ) : (
