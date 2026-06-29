@@ -221,7 +221,8 @@ async def score_stock(
         volume_ratio = recent_vol / avg_vol if avg_vol > 0 else 1.0
         # Volume spike bonus: if current vol > 2x average, strong interest
         volume_spike = volume_ratio > 2.0
-        base_vol_score = min(100, max(0, 50 + (volume_ratio - 1.0) * 50))
+        # More generous volume scoring — 0.7x still gets 60 (tradeable), 1.0x = 70 (neutral-positive)
+        base_vol_score = min(100, max(0, 70 + (volume_ratio - 1.0) * 40))
         volume_score = min(100, base_vol_score + (15 if volume_spike else 0))
 
         # --- NEWS (25%) — Real sentiment from Engine 27 ---
@@ -277,12 +278,14 @@ async def score_stock(
                 return None
 
         # --- COMPOSITE ---
+        # Weights: technical 35%, volume 20%, news 15%, sector 15%, momentum 15%
+        # News weight reduced from 25% since real-time news is often at neutral 55
         composite = (
-            technical_score * 0.30
+            technical_score * 0.35
             + volume_score * 0.20
-            + news_score * 0.25
+            + news_score * 0.15
             + sector_score * 0.15
-            + momentum_score * 0.10
+            + momentum_score * 0.15
         )
 
         grade = compute_grade(composite)
