@@ -135,12 +135,17 @@ function stopFallbackPolling() {
 
 async function refreshAllStores() {
   try {
-    const [state, pos, sig] = await Promise.all([
+    const [state, pos, sig, countdown] = await Promise.all([
       marketApi.state(),
       positionApi.current(),
       signalsApi.current(),
+      marketApi.countdown(),
     ]);
     useMarketStore.getState().updateFromState(state);
+    // Ensure marketStatus is updated immediately so SignalFeed renders the correct branch
+    if (countdown?.status) {
+      useMarketStore.getState().setMarketStatus(countdown.status);
+    }
     usePositionStore.getState().updateFromApi(pos);
     useMarketStore.getState().setSignals(sig.signals || []);
   } catch { /* initial load failure handled by components */ }

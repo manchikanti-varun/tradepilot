@@ -17,9 +17,17 @@ export default function SignalFeed() {
   const [historySignals, setHistorySignals] = useState([]);
   const [loadingHistory, setLoadingHistory] = useState(false);
 
-  // Fetch last session signals when market is closed
+  // Fetch signals whenever market status changes
   useEffect(() => {
-    if (!isMarketOpen) {
+    if (isMarketOpen) {
+      // Eagerly load current signals so the tab isn't empty while SSE warms up
+      signalsApi.current()
+        .then((data) => {
+          useMarketStore.setState({ signals: data.signals || [] });
+        })
+        .catch(() => {});
+    } else {
+      // Fetch last session signals when market is closed
       setLoadingHistory(true);
       signalsApi.current()
         .then((data) => {
