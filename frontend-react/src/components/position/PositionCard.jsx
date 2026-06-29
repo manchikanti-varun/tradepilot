@@ -1,15 +1,13 @@
 import { useState } from 'react';
-import { Pencil, X, Check } from 'lucide-react';
+import { Pencil, X, Check, Clock, LogOut, TrendingUp, TrendingDown } from 'lucide-react';
 import { usePositionStore } from '../../store/usePositionStore';
 import { usePnL } from '../../hooks/usePnL';
 import { positionApi } from '../../api/position';
-import Card from '../shared/Card';
 import MonoNumber from '../shared/MonoNumber';
 import Badge from '../shared/Badge';
 import PositionProgress from './PositionProgress';
 import ExitSignalAlert from './ExitSignalAlert';
 import PnLDisplay from './PnLDisplay';
-import SectionLabel from '../shared/SectionLabel';
 import { formatCurrency } from '../../api/client';
 import { useAppStore } from '../../store/useAppStore';
 
@@ -42,7 +40,8 @@ export default function PositionCard() {
     ? ((currentLtp - entryPrice) / entryPrice * 100)
     : 0;
 
-  const borderClass = shouldExit ? 'border-sell/50' : flashClass || '';
+  const isProfit = pctChange >= 0;
+  const borderAccent = shouldExit ? 'border-l-4 border-l-sell' : isProfit ? 'border-l-4 border-l-buy' : 'border-l-4 border-l-sell';
 
   const startEdit = () => {
     setEditPrice(entryPrice?.toFixed(2) || '');
@@ -55,7 +54,6 @@ export default function PositionCard() {
     setSaving(true);
     try {
       await positionApi.editEntry(parseFloat(editPrice), parseInt(editQty));
-      // Refresh position data from backend so UI updates immediately
       const posData = await positionApi.current();
       usePositionStore.getState().updateFromApi(posData);
       useAppStore.getState().addToast({ type: 'success', message: 'Position updated' });
@@ -68,50 +66,58 @@ export default function PositionCard() {
 
   return (
     <div className="px-4 py-3">
-      <SectionLabel className="mb-2 block">Active Position</SectionLabel>
-
       <ExitSignalAlert />
 
-      <div className={`bg-surface border border-border-dim rounded-lg p-3 ${borderClass}`}>
+      <div className={`bg-surface border border-border-dim rounded-xl p-4 ${borderAccent} ${flashClass || ''}`}>
         {/* Header */}
-        <div className="flex items-center justify-between mb-2">
-          <div className="flex items-center gap-2">
-            <span className="font-mono text-base font-semibold">{ticker}</span>
-            <Badge variant={shouldExit ? 'sell' : phase === 'TRAILING' ? 'buy' : 'neutral'}>
-              {phase || 'HOLDING'}
-            </Badge>
+        <div className="flex items-center justify-between mb-3">
+          <div className="flex items-center gap-2.5">
+            <div className={`w-8 h-8 rounded-lg flex items-center justify-center ${isProfit ? 'bg-buy/12' : 'bg-sell/12'}`}>
+              {isProfit ? <TrendingUp size={16} className="text-buy" /> : <TrendingDown size={16} className="text-sell" />}
+            </div>
+            <div>
+              <span className="font-mono text-lg font-bold text-text-primary">{ticker}</span>
+              <div className="flex items-center gap-1.5 mt-0.5">
+                <Badge variant={shouldExit ? 'sell' : phase === 'TRAILING' ? 'buy' : 'neutral'}>
+                  {phase || 'HOLDING'}
+                </Badge>
+                <span className="text-[10px] text-text-muted flex items-center gap-0.5">
+                  <Clock size={9} /> {timeInTrade}
+                </span>
+              </div>
+            </div>
           </div>
           <button
             onClick={startEdit}
-            className="flex items-center gap-1 text-[10px] text-info hover:text-text-primary transition-colors"
+            className="flex items-center gap-1 px-2 py-1 rounded-md text-[10px] text-text-muted hover:text-info hover:bg-info/5 transition-all"
           >
-            <Pencil size={11} />
+            <Pencil size={10} />
             Edit
           </button>
         </div>
 
         {/* Edit Mode */}
         {editing ? (
-          <div className="space-y-2 mb-3 p-2 bg-overlay rounded border border-border-dim">
-            <div className="grid grid-cols-2 gap-2">
+          <div className="space-y-3 mb-3 p-3 bg-overlay rounded-lg border border-border-dim animate-slide-in">
+            <div className="grid grid-cols-2 gap-3">
               <div>
-                <label className="text-[9px] uppercase text-text-muted">Entry Price</label>
+                <label className="text-[10px] uppercase text-text-muted font-medium block mb-1">Entry Price</label>
                 <input
                   type="number"
                   value={editPrice}
                   onChange={(e) => setEditPrice(e.target.value)}
                   step="0.05"
-                  className="w-full mt-1 bg-base border border-border-dim rounded px-2 py-1.5 text-sm font-mono text-text-primary outline-none focus:border-info [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none"
+                  className="w-full bg-base border border-border-dim rounded-lg px-3 py-2 text-sm font-mono text-text-primary outline-none focus:border-info focus:ring-1 focus:ring-info/20 [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none"
                 />
               </div>
               <div>
-                <label className="text-[9px] uppercase text-text-muted">Quantity</label>
+                <label className="text-[10px] uppercase text-text-muted font-medium block mb-1">Quantity</label>
                 <input
                   type="number"
                   value={editQty}
                   onChange={(e) => setEditQty(e.target.value)}
                   min="1"
-                  className="w-full mt-1 bg-base border border-border-dim rounded px-2 py-1.5 text-sm font-mono text-text-primary outline-none focus:border-info [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none"
+                  className="w-full bg-base border border-border-dim rounded-lg px-3 py-2 text-sm font-mono text-text-primary outline-none focus:border-info focus:ring-1 focus:ring-info/20 [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none"
                 />
               </div>
             </div>
@@ -119,43 +125,39 @@ export default function PositionCard() {
               <button
                 onClick={saveEdit}
                 disabled={saving}
-                className="flex-1 py-1.5 rounded bg-info/20 border border-info/40 text-[11px] text-info font-medium hover:bg-info/30 flex items-center justify-center gap-1"
+                className="flex-1 py-2 rounded-lg bg-info/15 border border-info/30 text-xs text-info font-semibold hover:bg-info/25 flex items-center justify-center gap-1.5 transition-all"
               >
-                <Check size={12} />
-                {saving ? 'Saving...' : 'Save'}
+                <Check size={13} />
+                {saving ? 'Saving...' : 'Save Changes'}
               </button>
               <button
                 onClick={() => setEditing(false)}
-                className="px-3 py-1.5 rounded border border-border-dim text-[11px] text-text-muted hover:text-text-secondary flex items-center gap-1"
+                className="px-4 py-2 rounded-lg border border-border-dim text-xs text-text-muted hover:text-text-secondary hover:border-border-mid flex items-center gap-1 transition-all"
               >
-                <X size={12} />
-                Cancel
+                <X size={13} />
               </button>
             </div>
           </div>
         ) : (
-          /* Entry / LTP */
-          <div className="grid grid-cols-2 gap-2 text-[11px] mb-2">
-            <div>
-              <span className="text-text-muted">Entry</span>
-              <MonoNumber value={` ₹${entryPrice?.toFixed(2)}`} className="ml-1" />
+          /* Position Data Grid */
+          <div className="grid grid-cols-2 gap-3 mb-3">
+            <div className="bg-overlay rounded-lg p-2.5">
+              <span className="text-[10px] text-text-muted block">Entry</span>
+              <span className="text-sm font-mono font-semibold text-text-primary">₹{entryPrice?.toFixed(2)}</span>
             </div>
-            <div>
-              <span className="text-text-muted">Qty</span>
-              <MonoNumber value={` ${qty}`} className="ml-1" />
+            <div className="bg-overlay rounded-lg p-2.5">
+              <span className="text-[10px] text-text-muted block">LTP</span>
+              <span className="text-sm font-mono font-semibold text-text-primary">₹{currentLtp?.toFixed(2)}</span>
             </div>
-            <div>
-              <span className="text-text-muted">LTP</span>
-              <MonoNumber value={` ₹${currentLtp?.toFixed(2)}`} className="ml-1" />
-              <MonoNumber
-                value={` (${pctChange >= 0 ? '+' : ''}${pctChange.toFixed(2)}%)`}
-                color={pctChange >= 0 ? 'buy' : 'sell'}
-                className="text-[10px]"
-              />
+            <div className="bg-overlay rounded-lg p-2.5">
+              <span className="text-[10px] text-text-muted block">Qty</span>
+              <span className="text-sm font-mono font-semibold text-text-primary">{qty}</span>
             </div>
-            <div>
-              <span className="text-text-muted">Time</span>
-              <span className="text-text-secondary ml-1 font-mono">{timeInTrade}</span>
+            <div className="bg-overlay rounded-lg p-2.5">
+              <span className="text-[10px] text-text-muted block">P&L %</span>
+              <span className={`text-sm font-mono font-bold ${isProfit ? 'text-buy' : 'text-sell'}`}>
+                {pctChange >= 0 ? '+' : ''}{pctChange.toFixed(2)}%
+              </span>
             </div>
           </div>
         )}
@@ -169,20 +171,23 @@ export default function PositionCard() {
         />
 
         {/* P&L */}
-        <PnLDisplay label="Unrealized P&L" />
-        {chargesEstimate && (
-          <div className="flex items-center justify-between text-[11px]">
-            <span className="text-text-muted">After charges</span>
-            <span className="font-mono text-text-secondary">{formatCurrency(chargesEstimate)}</span>
-          </div>
-        )}
+        <div className="mt-3 pt-3 border-t border-border-dim">
+          <PnLDisplay label="Unrealized P&L" />
+          {chargesEstimate && (
+            <div className="flex items-center justify-between text-[11px] mt-1">
+              <span className="text-text-muted">Est. charges</span>
+              <span className="font-mono text-text-secondary">{formatCurrency(chargesEstimate)}</span>
+            </div>
+          )}
+        </div>
 
         {/* Manual Exit Button */}
-        <button className={`w-full mt-3 py-2 rounded text-xs font-medium border transition-colors duration-100 ${
+        <button className={`w-full mt-4 py-2.5 rounded-lg text-xs font-semibold border flex items-center justify-center gap-1.5 transition-all ${
           shouldExit
-            ? 'bg-sell/10 border-sell/40 text-sell hover:bg-sell/20'
-            : 'bg-overlay border-border-dim text-text-secondary hover:border-border-mid'
+            ? 'bg-sell/10 border-sell/30 text-sell hover:bg-sell/20'
+            : 'bg-overlay border-border-dim text-text-secondary hover:border-border-mid hover:text-text-primary'
         }`}>
+          <LogOut size={13} />
           LOG MANUAL EXIT
         </button>
       </div>

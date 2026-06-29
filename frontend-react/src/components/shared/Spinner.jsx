@@ -1,8 +1,10 @@
-export default function Spinner({ size = 16, className = '' }) {
+import { Loader2 } from 'lucide-react';
+
+export default function Spinner({ size = 18, className = '' }) {
   return (
-    <div
-      className={`border-2 border-border-mid border-t-info rounded-full animate-spin ${className}`}
-      style={{ width: size, height: size }}
+    <Loader2
+      size={size}
+      className={`animate-spin text-info ${className}`}
     />
   );
 }

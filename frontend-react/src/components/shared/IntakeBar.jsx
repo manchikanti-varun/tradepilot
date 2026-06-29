@@ -109,9 +109,10 @@ export default function IntakeBar() {
       <div className="px-4 py-2">
         <button
           onClick={() => setExpanded(true)}
-          className="w-full py-2.5 rounded-lg border border-border-dim bg-surface text-xs text-text-secondary hover:border-border-mid hover:text-text-primary transition-colors duration-100"
+          className="w-full py-3 rounded-xl border border-dashed border-border-mid bg-overlay/50 text-xs font-medium text-text-muted hover:border-info/30 hover:text-info hover:bg-info/5 transition-all flex items-center justify-center gap-2"
         >
-          + Log a Trade
+          <Plus size={14} />
+          Log a Trade
         </button>
       </div>
     );
