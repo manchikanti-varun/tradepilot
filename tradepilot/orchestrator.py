@@ -211,18 +211,10 @@ async def _run_live_pipeline_inner():
             return
         vix = 14.0
 
-    # FIX 3.2: Market mode from VIX + Nifty trend (TRENDING was previously unreachable)
-    if vix > 22:
-        state.market_mode = MarketMode.HIGH_VOL
-    elif nifty_change > 0.8:
-        state.market_mode = MarketMode.TRENDING
-    else:
-        state.market_mode = MarketMode.NORMAL
-
     # Engine 11: Risk evaluation
+    nifty_change = 0.0
     try:
         # Compute real Nifty change from today's open
-        nifty_change = 0.0
         try:
             nifty_current = await state.market_data.get_nifty_value()
             if nifty_current > 0:
@@ -261,6 +253,14 @@ async def _run_live_pipeline_inner():
         state.signals = []
         logger.info("Hard stop active: %s", state.risk_state.reason)
         return
+
+    # FIX 3.2: Market mode from VIX + Nifty trend (moved after nifty_change computation)
+    if vix > 22:
+        state.market_mode = MarketMode.HIGH_VOL
+    elif nifty_change > 0.8:
+        state.market_mode = MarketMode.TRENDING
+    else:
+        state.market_mode = MarketMode.NORMAL
 
     # Engine 3: Breadth
     top_sectors = list(TOP_SECTORS)
