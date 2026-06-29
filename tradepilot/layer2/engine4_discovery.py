@@ -34,6 +34,8 @@ class StockScore:
     vwap: float
     macd: float
     volume_ratio: float
+    recent_trend: str = "UNKNOWN"  # RISING, FALLING, SIDEWAYS
+    drop_from_high_pct: float = 0.0
     timestamp: datetime = field(default_factory=datetime.now)
 
 
@@ -294,6 +296,25 @@ async def score_stock(
 
         grade = compute_grade(composite)
 
+        # Compute recent trend from candles already fetched
+        recent_trend = "UNKNOWN"
+        drop_from_high_pct = 0.0
+        if len(candles) >= 6:
+            recent_highs = candles["high"].iloc[-6:]
+            recent_high = float(recent_highs.max())
+            if recent_high > 0:
+                drop_from_high_pct = round((recent_high - ltp) / recent_high * 100, 2)
+            # Check last 3 candles
+            last3_closes = candles["close"].iloc[-3:].tolist()
+            last3_opens = candles["open"].iloc[-3:].tolist()
+            red_count = sum(1 for c, o in zip(last3_closes, last3_opens) if float(c) < float(o))
+            if drop_from_high_pct > 0.5 or red_count >= 3:
+                recent_trend = "FALLING"
+            elif drop_from_high_pct < 0.2 and red_count <= 1:
+                recent_trend = "RISING"
+            else:
+                recent_trend = "SIDEWAYS"
+
         return StockScore(
             symbol=symbol,
             sector=sector,
@@ -309,6 +330,8 @@ async def score_stock(
             vwap=round(vwap, 2),
             macd=round(macd_hist, 4),
             volume_ratio=round(volume_ratio, 2),
+            recent_trend=recent_trend,
+            drop_from_high_pct=drop_from_high_pct,
             # FIX 1.4: Use IST timestamp
             timestamp=now_ist_ts,
         )

@@ -328,7 +328,8 @@ async def _run_live_pipeline_inner():
         min_grade_set = {Grade.A_PLUS, Grade.A}
     elif state.event_risk.grade_floor == "B":
         min_grade_set = {Grade.A_PLUS, Grade.A, Grade.B}
-    top_scores = [s for s in scores if s.grade in min_grade_set]
+    # Only include stocks that are RISING or SIDEWAYS — never recommend falling stocks
+    top_scores = [s for s in scores if s.grade in min_grade_set and s.recent_trend != "FALLING"]
 
     # Engine 22: Log rejections
     for s in scores:
@@ -351,7 +352,9 @@ async def _run_live_pipeline_inner():
     # FALLBACK: If all gates blocked everything, generate basic signals from top scored stocks
     if not signals and scores:
         logger.warning("All candidates failed gates — generating fallback signals from top 3 scores")
-        for i, score in enumerate(scores[:3]):
+        # Only use non-falling stocks in fallback
+        fallback_candidates = [s for s in scores if s.recent_trend != "FALLING"][:3]
+        for i, score in enumerate(fallback_candidates):
             try:
                 atr_estimate = score.ltp * 0.015  # Estimate 1.5% daily range
                 stop_est = round(score.ltp - atr_estimate * 0.4, 2)
