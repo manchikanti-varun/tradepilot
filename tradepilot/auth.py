@@ -202,6 +202,7 @@ class BrokerCredentialsRequest(BaseModel):
 class GroqKeyRequest(BaseModel):
     """Groq API key — REQUIRED for AI features. Get free at console.groq.com"""
     groq_api_key: str = Field(..., min_length=1, max_length=200)
+    groq_api_key_2: Optional[str] = Field(None, max_length=200)
 
 
 # --- Core Auth Functions ---
@@ -366,27 +367,33 @@ async def save_broker_credentials(user_id: int, creds: BrokerCredentialsRequest)
 
 
 async def save_groq_key(user_id: int, request: GroqKeyRequest) -> dict:
-    """Encrypt and store user's Groq API key. Preserves existing Angel One creds if set."""
+    """Encrypt and store user's Groq API key(s). Preserves existing Angel One creds if set."""
     async with get_db() as db:
-        # Check if row exists
         row = await db.execute("SELECT user_id FROM user_credentials WHERE user_id = ?", (user_id,))
         existing = await row.fetchone()
 
+        groq_key_1 = encrypt_credential(request.groq_api_key)
+        groq_key_2 = encrypt_credential(request.groq_api_key_2) if hasattr(request, 'groq_api_key_2') and request.groq_api_key_2 else None
+
         if existing:
-            # Update only Groq key — preserve Angel One fields
-            await db.execute(
-                "UPDATE user_credentials SET groq_api_key = ?, updated_at = ? WHERE user_id = ?",
-                (encrypt_credential(request.groq_api_key), datetime.now().isoformat(), user_id),
-            )
+            if groq_key_2:
+                await db.execute(
+                    "UPDATE user_credentials SET groq_api_key = ?, groq_api_key_2 = ?, updated_at = ? WHERE user_id = ?",
+                    (groq_key_1, groq_key_2, datetime.now().isoformat(), user_id),
+                )
+            else:
+                await db.execute(
+                    "UPDATE user_credentials SET groq_api_key = ?, updated_at = ? WHERE user_id = ?",
+                    (groq_key_1, datetime.now().isoformat(), user_id),
+                )
         else:
-            # No row yet — insert with just Groq key
             await db.execute(
-                "INSERT INTO user_credentials (user_id, groq_api_key, updated_at) VALUES (?, ?, ?)",
-                (user_id, encrypt_credential(request.groq_api_key), datetime.now().isoformat()),
+                "INSERT INTO user_credentials (user_id, groq_api_key, groq_api_key_2, updated_at) VALUES (?, ?, ?, ?)",
+                (user_id, groq_key_1, groq_key_2, datetime.now().isoformat()),
             )
         await db.commit()
 
-    return {"status": "saved", "message": "Groq API key encrypted and stored."}
+    return {"status": "saved", "message": "Groq API key(s) encrypted and stored."}
 
 
 async def get_user_credentials(user_id: int) -> Optional[dict]:
@@ -411,6 +418,8 @@ async def get_user_credentials(user_id: int) -> Optional[dict]:
         result["angel_totp_secret"] = decrypt_credential(data["angel_totp_secret"])
     if data["groq_api_key"]:
         result["groq_api_key"] = decrypt_credential(data["groq_api_key"])
+    if data.get("groq_api_key_2"):
+        result["groq_api_key_2"] = decrypt_credential(data["groq_api_key_2"])
 
     return result if result else None
 

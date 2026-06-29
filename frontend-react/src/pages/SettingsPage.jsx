@@ -203,6 +203,7 @@ function ToggleRow({ label, value, onChange }) {
 
 function ApiKeySection({ credStatus, onRefresh }) {
   const [groqKey, setGroqKey] = useState('');
+  const [groqKey2, setGroqKey2] = useState('');
   const [showGroq, setShowGroq] = useState(false);
   const [saving, setSaving] = useState(false);
 
@@ -210,11 +211,12 @@ function ApiKeySection({ credStatus, onRefresh }) {
     if (!groqKey.trim()) return;
     setSaving(true);
     try {
-      await authApi.saveGroqKey(groqKey.trim());
+      await authApi.saveGroqKey(groqKey.trim(), groqKey2.trim() || null);
       setGroqKey('');
+      setGroqKey2('');
       setShowGroq(false);
       onRefresh();
-      useAppStore.getState().addToast({ type: 'success', message: 'Groq key updated' });
+      useAppStore.getState().addToast({ type: 'success', message: 'Groq key(s) updated' });
     } catch (e) {
       useAppStore.getState().addToast({ type: 'error', message: e.message });
     }
@@ -226,7 +228,7 @@ function ApiKeySection({ credStatus, onRefresh }) {
       {/* Groq */}
       <div>
         <div className="flex items-center justify-between">
-          <span className="text-text-secondary">Groq API Key</span>
+          <span className="text-text-secondary">Groq API Keys</span>
           <div className="flex items-center gap-2">
             {credStatus?.groq ? <Badge variant="buy">Active</Badge> : <Badge variant="sell">Not set</Badge>}
             <button onClick={() => setShowGroq(!showGroq)} className="text-[10px] text-info hover:underline">
@@ -235,12 +237,24 @@ function ApiKeySection({ credStatus, onRefresh }) {
           </div>
         </div>
         {showGroq && (
-          <div className="flex gap-2 mt-2">
-            <input type="password" value={groqKey} onChange={(e) => setGroqKey(e.target.value)}
-              placeholder="gsk_xxxxxxxxxxxx"
-              className="flex-1 bg-base border border-border-dim rounded px-2 py-1.5 text-xs text-text-primary outline-none" />
+          <div className="space-y-2 mt-2">
+            <div>
+              <label className="text-[9px] text-text-muted block mb-1">Key 1 — Llama Scout (fast model)</label>
+              <input type="password" value={groqKey} onChange={(e) => setGroqKey(e.target.value)}
+                placeholder="gsk_xxxxxxxxxxxx"
+                className="w-full bg-base border border-border-dim rounded px-3 py-2 text-xs text-text-primary outline-none focus:border-info" />
+            </div>
+            <div>
+              <label className="text-[9px] text-text-muted block mb-1">Key 2 — Llama 70B (second opinion, different account)</label>
+              <input type="password" value={groqKey2} onChange={(e) => setGroqKey2(e.target.value)}
+                placeholder="gsk_xxxxxxxxxxxx (optional — avoids rate limit)"
+                className="w-full bg-base border border-border-dim rounded px-3 py-2 text-xs text-text-primary outline-none focus:border-info" />
+            </div>
             <button onClick={handleGroqSave} disabled={saving || !groqKey.trim()}
-              className="px-3 py-1.5 bg-info text-white rounded text-[10px] font-medium disabled:opacity-50">Save</button>
+              className="w-full py-2 bg-info text-white rounded text-xs font-medium disabled:opacity-50">
+              {saving ? 'Saving...' : 'Save Keys'}
+            </button>
+            <p className="text-[9px] text-text-muted">Use 2 different Groq accounts for both models to respond without rate limits. Get free key at console.groq.com</p>
           </div>
         )}
       </div>

@@ -25,6 +25,7 @@ import aiohttp
 logger = logging.getLogger(__name__)
 
 GROQ_API_KEY = os.environ.get("GROQ_API_KEY", "")
+GROQ_API_KEY_2 = os.environ.get("GROQ_API_KEY_2", "")  # Second key for the 70B model
 
 
 # ═══════════════════════════════════════════════════════════════
@@ -429,8 +430,10 @@ analyze_with_gemini = analyze_with_scout
 
 
 async def analyze_with_groq(symbol: str, data: dict) -> Optional[dict]:
-    """Get analysis from Groq AI (Llama model)."""
-    if not GROQ_API_KEY:
+    """Get analysis from Groq AI (Llama 3.3 70B). Uses GROQ_API_KEY_2 if available."""
+    # Use second key if available, otherwise fall back to primary
+    api_key = GROQ_API_KEY_2 or GROQ_API_KEY
+    if not api_key:
         return None
 
     prompt = _build_prompt(symbol, data)
@@ -444,7 +447,7 @@ async def analyze_with_groq(symbol: str, data: dict) -> Optional[dict]:
     }
 
     headers = {
-        "Authorization": f"Bearer {GROQ_API_KEY}",
+        "Authorization": f"Bearer {api_key}",
         "Content-Type": "application/json",
     }
 
@@ -500,10 +503,21 @@ async def dual_ai_analysis(symbol: str, data: dict) -> dict:
     - confidence: HIGH / MEDIUM / LOW
     - combined_reasoning: merged explanation
     """
-    # Run both in parallel — but stagger slightly to avoid Groq rate limit
-    gemini_result = await analyze_with_scout(symbol, data)
-    await asyncio.sleep(1)  # 1s gap to avoid concurrent rate limit on free tier
-    groq_result = await analyze_with_groq(symbol, data)
+    # Run both models — parallel if using separate keys, sequential if same key
+    if GROQ_API_KEY_2 and GROQ_API_KEY_2 != GROQ_API_KEY:
+        # Separate keys = safe to run in parallel (no rate limit collision)
+        results = await asyncio.gather(
+            analyze_with_scout(symbol, data),
+            analyze_with_groq(symbol, data),
+            return_exceptions=True,
+        )
+        gemini_result = results[0] if not isinstance(results[0], Exception) else None
+        groq_result = results[1] if not isinstance(results[1], Exception) else None
+    else:
+        # Same key = stagger to avoid rate limit
+        gemini_result = await analyze_with_scout(symbol, data)
+        await asyncio.sleep(1)
+        groq_result = await analyze_with_groq(symbol, data)
 
     # Handle None results (function returns None on failure)
     # No need to check for exceptions since we're not using gather with return_exceptions

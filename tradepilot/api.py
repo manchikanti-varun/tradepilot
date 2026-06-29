@@ -144,9 +144,20 @@ async def api_save_groq_key(
     request: GroqKeyRequest,
     user: dict = Depends(get_current_user),
 ):
-    """Save encrypted Groq API key. REQUIRED for AI features (dual-model analysis, coaching, signals).
-    Without this, the system runs in rule-based-only mode (technical indicators without AI confirmation)."""
-    return await save_groq_key(user["user_id"], request)
+    """Save encrypted Groq API key(s). REQUIRED for AI features.
+    Key 1: Llama Scout (17B) — fast analysis
+    Key 2: Llama 3.3 (70B) — second opinion for confirmation"""
+    result = await save_groq_key(user["user_id"], request)
+
+    # Also set env vars so engine_ai picks them up immediately
+    import tradepilot.layer2.engine_ai as engine_ai
+    os.environ["GROQ_API_KEY"] = request.groq_api_key
+    engine_ai.GROQ_API_KEY = request.groq_api_key
+    if request.groq_api_key_2:
+        os.environ["GROQ_API_KEY_2"] = request.groq_api_key_2
+        engine_ai.GROQ_API_KEY_2 = request.groq_api_key_2
+
+    return result
 
 
 class ChangePasswordRequest(BaseModel):

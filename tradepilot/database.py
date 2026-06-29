@@ -70,6 +70,7 @@ CREATE TABLE IF NOT EXISTS user_credentials (
     angel_password TEXT,
     angel_totp_secret TEXT,
     groq_api_key TEXT,
+    groq_api_key_2 TEXT,
     updated_at TEXT NOT NULL
 );
 
