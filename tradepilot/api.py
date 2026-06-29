@@ -689,9 +689,9 @@ async def get_signals():
     for s in state.signals:
         generated = s.generated_at if hasattr(s, 'generated_at') and s.generated_at else now
         age_sec = (now - generated).total_seconds()
-        # Signals expire after 15 minutes (900 seconds)
-        is_expired = age_sec > 900
-        remaining_sec = max(0, 900 - int(age_sec))
+        # Signals expire after 5 minutes (300 seconds) — intraday signals go stale fast
+        is_expired = age_sec > 300
+        remaining_sec = max(0, 300 - int(age_sec))
 
         # FIX 3.1: Fetch live price and compute drift
         try:
@@ -722,8 +722,18 @@ async def get_signals():
             "expires_in_sec": remaining_sec,
             "is_expired": is_expired,
         })
-    # Filter out expired signals
-    active_signals = [s for s in signals if not s["is_expired"]]
+    # Filter out expired signals AND signals where price moved against the recommendation
+    active_signals = []
+    for s in signals:
+        if s["is_expired"]:
+            continue
+        # If live price dropped below entry by more than 0.3%, signal is no longer valid
+        if s["live_price"] < s["ltp"] * 0.997:
+            continue
+        # If live price dropped below stop, definitely invalid
+        if s["stop_price"] and s["live_price"] <= s["stop_price"]:
+            continue
+        active_signals.append(s)
     return {
         "signals": active_signals,
         "count": len(active_signals),
@@ -1808,7 +1818,7 @@ async def delete_price_alert(alert_id: int):
 
 
 @app.post("/api/intake/quick")
-async def quick_trade_intake(symbol: str, price: float, qty: int, intent: str = "BUY"):
+async def quick_trade_intake(symbol: str, price: float, qty: int, intent: str = "BUY", time: str = None):
     """Feature 4: Quick trade — structured data, no NLP parsing needed."""
     intent = intent.upper()
     if intent not in ("BUY", "SELL"):
@@ -1818,26 +1828,40 @@ async def quick_trade_intake(symbol: str, price: float, qty: int, intent: str = 
     if qty <= 0 or qty > 5000:
         return {"status": "error", "message": f"Qty {qty} is invalid"}
 
+    # Parse time if provided (format: "HH:MM")
+    trade_time_str = None
+    if time:
+        try:
+            from zoneinfo import ZoneInfo
+            now_ist = datetime.now(ZoneInfo("Asia/Kolkata"))
+            h, m = map(int, time.split(":"))
+            trade_dt = now_ist.replace(hour=h, minute=m, second=0, microsecond=0)
+            trade_time_str = trade_dt.isoformat()
+        except Exception:
+            trade_time_str = None
+
     state = get_state()
     active = await state.tracker.get_active_trade()
+
+    time_display = f" at {time}" if time else ""
 
     if intent == "BUY":
         if active is not None:
             return {"status": "rejected", "message": f"Already have open {active.ticker} — close it first",
-                    "parsed": {"intent": intent, "ticker": symbol, "price": price, "qty": qty}}
+                    "parsed": {"intent": intent, "ticker": symbol, "price": price, "qty": qty, "time": trade_time_str}}
         return {"status": "confirm_entry",
-                "parsed": {"intent": intent, "ticker": symbol, "price": price, "qty": qty},
-                "message": f"Got it — BUY {symbol}, ₹{price:.2f}, qty {qty}, just now. Confirm?"}
+                "parsed": {"intent": intent, "ticker": symbol, "price": price, "qty": qty, "time": trade_time_str},
+                "message": f"Got it — BUY {symbol}, ₹{price:.2f}, qty {qty}{time_display}. Confirm?"}
     else:
         if active is None:
             return {"status": "rejected", "message": "No active position to close",
-                    "parsed": {"intent": intent, "ticker": symbol, "price": price, "qty": qty}}
+                    "parsed": {"intent": intent, "ticker": symbol, "price": price, "qty": qty, "time": trade_time_str}}
         if active.ticker != symbol:
             return {"status": "rejected", "message": f"Active position is {active.ticker}, not {symbol}",
-                    "parsed": {"intent": intent, "ticker": symbol, "price": price, "qty": qty}}
+                    "parsed": {"intent": intent, "ticker": symbol, "price": price, "qty": qty, "time": trade_time_str}}
         return {"status": "confirm_exit",
-                "parsed": {"intent": intent, "ticker": symbol, "price": price, "qty": qty},
-                "message": f"Got it — SELL {symbol}, ₹{price:.2f}, qty {qty}, just now. Confirm?"}
+                "parsed": {"intent": intent, "ticker": symbol, "price": price, "qty": qty, "time": trade_time_str},
+                "message": f"Got it — SELL {symbol}, ₹{price:.2f}, qty {qty}{time_display}. Confirm?"}
 
 
 @app.get("/api/position/exit-calc")

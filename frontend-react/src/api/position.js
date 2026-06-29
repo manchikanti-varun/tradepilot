@@ -6,6 +6,10 @@ export const positionApi = {
   exitCalc: () => get('/api/position/exit-calc'),
   intake: (text) => post('/api/intake', { text }),
   confirmIntake: (data) => post('/api/intake/confirm', data),
-  quickTrade: (symbol, price, qty, intent) => post(`/api/intake/quick?symbol=${symbol}&price=${price}&qty=${qty}&intent=${intent}`, {}),
+  quickTrade: (symbol, price, qty, intent, time) => {
+    let url = `/api/intake/quick?symbol=${symbol}&price=${price}&qty=${qty}&intent=${intent}`;
+    if (time) url += `&time=${time}`;
+    return post(url, {});
+  },
   editEntry: (price, qty) => post('/api/position/edit', { entry_price: price, qty }),
 };

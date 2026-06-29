@@ -621,16 +621,24 @@ async def confirm_intake(parsed_data: dict) -> dict:
     ticker = parsed_data.get("ticker")
     price = parsed_data.get("price")
     qty = parsed_data.get("qty")
+    trade_time_str = parsed_data.get("time")
 
     # Input validation
     if not ticker or not price or not qty:
         return {"status": "error", "message": "Missing required fields."}
     if price <= 0 or price > 50000:
         return {"status": "error", "message": f"Price ₹{price} is out of valid range (0-50000)."}
-    if qty <= 0 or qty > 500:
-        return {"status": "error", "message": f"Qty {qty} is out of valid range (1-500)."}
+    if qty <= 0 or qty > 5000:
+        return {"status": "error", "message": f"Qty {qty} is out of valid range (1-5000)."}
 
-    now = now_ist()
+    # Use provided time or current time
+    if trade_time_str:
+        try:
+            now = datetime.fromisoformat(trade_time_str)
+        except Exception:
+            now = now_ist()
+    else:
+        now = now_ist()
 
     if intent == "BUY":
         growth = await get_growth_state()

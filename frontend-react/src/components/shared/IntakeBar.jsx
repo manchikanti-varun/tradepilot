@@ -9,6 +9,7 @@ export default function IntakeBar() {
   const [symbol, setSymbol] = useState('');
   const [price, setPrice] = useState('');
   const [qty, setQty] = useState('1');
+  const [tradeTime, setTradeTime] = useState('');
   const [loading, setLoading] = useState(false);
   const [expanded, setExpanded] = useState(false);
 
@@ -72,7 +73,8 @@ export default function IntakeBar() {
         symbol.toUpperCase(),
         parseFloat(price),
         parseInt(qty),
-        intent
+        intent,
+        tradeTime || null
       );
       if (res.status === 'confirm_entry' || res.status === 'confirm_exit') {
         useAppStore.getState().setActiveModal({ type: 'confirmTrade', data: res });
@@ -87,6 +89,7 @@ export default function IntakeBar() {
       setSymbol('');
       setPrice('');
       setQty('1');
+      setTradeTime('');
       setExpanded(false);
     } catch (e) {
       useAppStore.getState().addToast({ type: 'error', message: e.message });
@@ -250,6 +253,17 @@ export default function IntakeBar() {
               </button>
             </div>
           </div>
+        </div>
+
+        {/* Time (optional) */}
+        <div>
+          <label className="text-[9px] uppercase text-text-muted tracking-wider block mb-1">Time (optional — defaults to now)</label>
+          <input
+            type="time"
+            value={tradeTime}
+            onChange={(e) => setTradeTime(e.target.value)}
+            className="w-full bg-base border border-border-dim rounded-lg px-4 py-2.5 text-sm font-mono text-text-primary outline-none focus:border-border-mid"
+          />
         </div>
 
         {/* Submit + Cancel */}
