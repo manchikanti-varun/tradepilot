@@ -12,34 +12,32 @@ export default function ScanCountdown() {
   }, [tickScanCountdown]);
 
   const progress = ((90 - scanCountdown) / 90) * 100;
-  const radius = 12;
+  const radius = 11;
   const circumference = 2 * Math.PI * radius;
   const offset = circumference - (progress / 100) * circumference;
 
   const isStale = scanCountdown <= 0 && lastScanTime && (Date.now() - new Date(lastScanTime).getTime()) > 180000;
-
-  const color = isStale ? 'text-watch' : 'text-buy';
-  const strokeColor = isStale ? '#D97706' : '#16A34A';
+  const strokeColor = isStale ? '#F59E0B' : '#22C55E';
 
   let agoText = '';
   if (lastScanTime) {
     const ago = Math.round((Date.now() - new Date(lastScanTime).getTime()) / 1000);
-    agoText = `${ago}s ago`;
+    agoText = `${ago}s`;
   }
 
   return (
-    <div className="flex items-center gap-2">
-      <svg width="28" height="28" className={color}>
-        <circle cx="14" cy="14" r={radius} fill="none" stroke="#1F1F27" strokeWidth="2" />
+    <div className="flex items-center gap-1.5 px-2 py-1 rounded-lg bg-overlay">
+      <svg width="24" height="24">
+        <circle cx="12" cy="12" r={radius} fill="none" stroke="#1F1F27" strokeWidth="2" />
         <circle
-          cx="14" cy="14" r={radius}
+          cx="12" cy="12" r={radius}
           fill="none"
           stroke={strokeColor}
           strokeWidth="2"
           strokeLinecap="round"
           strokeDasharray={circumference}
           strokeDashoffset={offset}
-          transform="rotate(-90 14 14)"
+          transform="rotate(-90 12 12)"
           className="transition-all duration-1000 ease-linear"
         />
       </svg>

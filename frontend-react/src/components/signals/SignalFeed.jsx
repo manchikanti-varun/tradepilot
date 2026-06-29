@@ -1,10 +1,11 @@
 import { useState, useEffect } from 'react';
-import { Crosshair, Clock } from 'lucide-react';
+import { Crosshair, Clock, Radio, Calendar, BookOpen, BarChart3, Shield, Settings2 } from 'lucide-react';
 import { useMarketStore } from '../../store/useMarketStore';
 import { useMarketHours } from '../../hooks/useMarketHours';
 import { signalsApi } from '../../api/signals';
 import SignalCard from './SignalCard';
 import EmptyState from '../shared/EmptyState';
+import Spinner from '../shared/Spinner';
 import ScanCountdown from '../market/ScanCountdown';
 import SectionLabel from '../shared/SectionLabel';
 import { useAppStore } from '../../store/useAppStore';
@@ -17,21 +18,17 @@ export default function SignalFeed() {
   const [historySignals, setHistorySignals] = useState([]);
   const [loadingHistory, setLoadingHistory] = useState(false);
 
-  // Fetch signals whenever market status changes
   useEffect(() => {
     if (isMarketOpen) {
-      // Eagerly load current signals so the tab isn't empty while SSE warms up
       signalsApi.current()
         .then((data) => {
           useMarketStore.setState({ signals: data.signals || [] });
         })
         .catch(() => {});
     } else {
-      // Fetch last session signals when market is closed
       setLoadingHistory(true);
       signalsApi.current()
         .then((data) => {
-          // Backend returns last session's signals when market is closed
           setHistorySignals(data.signals || []);
         })
         .catch(() => {})
@@ -52,33 +49,35 @@ export default function SignalFeed() {
   // Auto-stop state
   if (consecutiveLosses >= 3) {
     return (
-      <div className="p-6">
-        <div className="bg-sell/[0.12] border border-sell/40 rounded-lg p-5 text-center">
-          <p className="text-sm font-medium text-sell mb-2">⚠ AUTO-STOP ACTIVE</p>
-          <p className="text-xs text-text-secondary mb-1">3 consecutive losses recorded</p>
-          <p className="text-xs text-text-secondary mb-1">Signal scanning is paused</p>
-          <p className="text-[11px] text-text-muted mt-3">
-            Review your last 3 trades before resuming. Come back tomorrow or manually reset in Settings.
+      <div className="p-5">
+        <div className="bg-sell/8 border border-sell/25 rounded-xl p-5 text-center">
+          <div className="w-10 h-10 rounded-xl bg-sell/15 flex items-center justify-center mx-auto mb-3">
+            <Shield size={20} className="text-sell" />
+          </div>
+          <p className="text-sm font-semibold text-sell mb-1">Auto-Stop Active</p>
+          <p className="text-xs text-text-secondary mb-3">3 consecutive losses recorded. Scanning paused.</p>
+          <p className="text-[11px] text-text-muted">
+            Review your last 3 trades before resuming. Reset in Settings.
           </p>
         </div>
       </div>
     );
   }
 
-  // HARD_STOP active (but still show historical if market closed)
+  // HARD_STOP
   if (riskGate === 'HARD_STOP' && isMarketOpen) {
     return (
-      <div className="p-6">
+      <div className="p-5">
         <EmptyState
-          icon={Crosshair}
+          icon={Shield}
           title="Signals paused — risk gate active"
-          subtitle="Trading is halted. Wait for conditions to normalize."
+          subtitle="Trading is halted for safety. Wait for conditions to normalize."
         />
       </div>
     );
   }
 
-  // Market closed — show last session signals
+  // Market closed
   if (!isMarketOpen) {
     const displaySignals = historySignals.length > 0 ? historySignals : signals;
 
@@ -88,25 +87,26 @@ export default function SignalFeed() {
           <SectionLabel>
             {isPostMarket ? "Today's Signals" : 'Last Session'}
           </SectionLabel>
-          <div className="flex items-center gap-1.5">
+          <div className="flex items-center gap-1.5 px-2 py-1 rounded-md bg-overlay">
             <Clock size={11} className="text-text-muted" />
-            <span className="text-[10px] text-text-muted">
-              {isWeekend ? 'Weekend' : isPostMarket ? 'Market closed' : 'Pre-market'}
+            <span className="text-[10px] text-text-muted font-medium">
+              {isWeekend ? 'Weekend' : isPostMarket ? 'Closed' : 'Pre-market'}
             </span>
           </div>
         </div>
 
         {loadingHistory ? (
-          <div className="py-8 flex justify-center">
-            <div className="w-4 h-4 border-2 border-border-mid border-t-info rounded-full animate-spin" />
+          <div className="py-12 flex justify-center">
+            <Spinner size={20} />
           </div>
         ) : displaySignals.length > 0 ? (
           <>
-            <div className="bg-overlay border border-border-dim rounded-lg px-3 py-2 mb-2">
-              <p className="text-[11px] text-text-muted">
+            <div className="bg-overlay border border-border-dim rounded-xl px-4 py-2.5">
+              <p className="text-[11px] text-text-muted flex items-center gap-2">
+                <Calendar size={12} />
                 {displaySignals[0]?.is_historical
-                  ? '📋 Showing signals from last trading session (read-only)'
-                  : '📋 Market is closed — these signals are no longer actionable'}
+                  ? 'Last session signals (read-only)'
+                  : 'Market closed — signals no longer actionable'}
               </p>
             </div>
             {displaySignals.map((signal, i) => (
@@ -120,20 +120,21 @@ export default function SignalFeed() {
           </>
         ) : (
           <div className="space-y-3">
-            <div className="bg-overlay border border-border-dim rounded-lg p-4 text-center">
-              <p className="text-sm text-text-secondary mb-1">
-                {isWeekend ? '📅 Weekend — Market closed' : '📅 Market Holiday'}
+            <div className="bg-overlay border border-border-dim rounded-xl p-5 text-center">
+              <Calendar size={24} className="text-text-muted mx-auto mb-2" />
+              <p className="text-sm font-medium text-text-secondary">
+                {isWeekend ? 'Weekend — Market Closed' : 'Market Holiday'}
               </p>
-              <p className="text-[11px] text-text-muted mt-2">No signal history available from the last session.</p>
+              <p className="text-[11px] text-text-muted mt-1">No signal history from last session.</p>
             </div>
-            <div className="bg-surface border border-border-dim rounded-lg p-3">
-              <p className="text-[10px] uppercase tracking-wider text-text-muted font-medium mb-2">While you wait</p>
-              <ul className="space-y-1.5 text-[11px] text-text-secondary">
-                <li className="flex items-start gap-2"><span className="text-info">→</span> Review your trade history and journal notes</li>
-                <li className="flex items-start gap-2"><span className="text-info">→</span> Check the Reality Check (your returns vs Nifty)</li>
-                <li className="flex items-start gap-2"><span className="text-info">→</span> Read the AI Coach recommendations</li>
-                <li className="flex items-start gap-2"><span className="text-info">→</span> Adjust risk settings if needed</li>
-              </ul>
+            <div className="bg-surface border border-border-dim rounded-xl p-4">
+              <p className="text-[10px] uppercase tracking-wider text-text-muted font-semibold mb-3">While you wait</p>
+              <div className="space-y-2.5">
+                <SuggestionItem icon={BookOpen} text="Review your trade history and journal" />
+                <SuggestionItem icon={BarChart3} text="Check Reality Check (returns vs Nifty)" />
+                <SuggestionItem icon={Radio} text="Read AI Coach recommendations" />
+                <SuggestionItem icon={Settings2} text="Adjust risk settings if needed" />
+              </div>
             </div>
           </div>
         )}
@@ -141,23 +142,28 @@ export default function SignalFeed() {
     );
   }
 
-  // Market open — no signals found
+  // Market open — no signals
   if (!signals || signals.length === 0) {
     return (
-      <div className="p-6 flex flex-col items-center justify-center h-full">
-        <Crosshair size={28} className="text-text-muted mb-3" />
-        <p className="text-sm text-text-secondary mb-1">No signals found in this scan</p>
-        <p className="text-xs text-text-muted mb-4">Scanning 200+ stocks every 90s</p>
+      <div className="p-6 flex flex-col items-center justify-center min-h-[300px]">
+        <div className="w-14 h-14 rounded-2xl bg-overlay flex items-center justify-center mb-4">
+          <Crosshair size={26} className="text-text-muted" />
+        </div>
+        <p className="text-sm font-medium text-text-secondary mb-1">No signals in this scan</p>
+        <p className="text-xs text-text-muted mb-5">Scanning 200+ stocks every 90s</p>
         <ScanCountdown />
       </div>
     );
   }
 
-  // Active signals (market open)
+  // Active signals
   return (
     <div className="p-4 space-y-3">
       <div className="flex items-center justify-between">
-        <SectionLabel>Active Signals ({signals.length})</SectionLabel>
+        <div className="flex items-center gap-2">
+          <div className="w-2 h-2 rounded-full bg-buy pulse-dot" />
+          <SectionLabel>Active Signals ({signals.length})</SectionLabel>
+        </div>
         <ScanCountdown />
       </div>
       {signals.map((signal, i) => (
@@ -168,6 +174,15 @@ export default function SignalFeed() {
           onSkip={handleSkip}
         />
       ))}
+    </div>
+  );
+}
+
+function SuggestionItem({ icon: Icon, text }) {
+  return (
+    <div className="flex items-center gap-2.5">
+      <Icon size={13} className="text-info shrink-0" />
+      <span className="text-[11px] text-text-secondary">{text}</span>
     </div>
   );
 }
