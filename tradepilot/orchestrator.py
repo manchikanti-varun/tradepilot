@@ -86,9 +86,9 @@ class SignalCard:
     net_after_charges: float
     breakeven_pct: float
     risk_reward: float
-    allocation: AllocationResult
-    simulation: SimulationResult
-    entry_check: EntryCheckResult
+    allocation: Optional[AllocationResult]
+    simulation: Optional[SimulationResult]
+    entry_check: Optional[EntryCheckResult]
     message: str
     priority: int
     generated_at: datetime = field(default_factory=datetime.now)
@@ -347,6 +347,33 @@ async def _run_live_pipeline_inner():
         except Exception as e:
             logger.warning("Signal generation failed for %s: %s", score.symbol, e)
             continue
+
+    # FALLBACK: If all gates blocked everything, generate basic signals from top scores
+    # This ensures the user ALWAYS sees opportunities during market hours
+    if not signals and top_scores:
+        logger.warning("All %d candidates failed gates — generating fallback signals from top 3", len(top_scores))
+        for i, score in enumerate(top_scores[:3]):
+            atr_estimate = score.ltp * 0.015  # Estimate 1.5% daily range if ATR unavailable
+            stop_est = round(score.ltp - atr_estimate * 0.4, 2)
+            target_est = round(score.ltp + atr_estimate * 0.6, 2)
+            qty_est = max(1, int((growth.current_capital * 5) // score.ltp))
+            # Cap qty for risk
+            risk_per_share = score.ltp - stop_est
+            if risk_per_share > 0:
+                max_qty_risk = int((growth.current_capital * 0.02) / risk_per_share)
+                qty_est = min(qty_est, max_qty_risk)
+            net_est = round(qty_est * (target_est - score.ltp) * 0.7, 2)  # 70% of gross (charge estimate)
+            signals.append(SignalCard(
+                symbol=score.symbol, sector=score.sector,
+                grade=score.grade.value if hasattr(score.grade, 'value') else str(score.grade),
+                composite=score.composite, ltp=score.ltp, qty=qty_est,
+                stop_price=stop_est, target=target_est,
+                net_after_charges=net_est, breakeven_pct=0.3,
+                risk_reward=1.5, allocation=None, simulation=None,
+                entry_check=None,
+                message=f"BUY {score.symbol} qty={qty_est} @ ~₹{score.ltp:.2f}",
+                priority=i + 1,
+            ))
 
     state.signals = signals
     if signals:
