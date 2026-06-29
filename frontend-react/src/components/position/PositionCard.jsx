@@ -1,4 +1,5 @@
 import { useState } from 'react';
+import { Pencil, X, Check } from 'lucide-react';
 import { usePositionStore } from '../../store/usePositionStore';
 import { usePnL } from '../../hooks/usePnL';
 import { positionApi } from '../../api/position';
@@ -54,6 +55,9 @@ export default function PositionCard() {
     setSaving(true);
     try {
       await positionApi.editEntry(parseFloat(editPrice), parseInt(editQty));
+      // Refresh position data from backend so UI updates immediately
+      const posData = await positionApi.current();
+      usePositionStore.getState().updateFromApi(posData);
       useAppStore.getState().addToast({ type: 'success', message: 'Position updated' });
       setEditing(false);
     } catch (e) {
@@ -79,9 +83,10 @@ export default function PositionCard() {
           </div>
           <button
             onClick={startEdit}
-            className="text-[10px] text-info hover:text-text-primary transition-colors"
+            className="flex items-center gap-1 text-[10px] text-info hover:text-text-primary transition-colors"
           >
-            ✏️ Edit
+            <Pencil size={11} />
+            Edit
           </button>
         </div>
 
@@ -114,14 +119,16 @@ export default function PositionCard() {
               <button
                 onClick={saveEdit}
                 disabled={saving}
-                className="flex-1 py-1.5 rounded bg-info/20 border border-info/40 text-[11px] text-info font-medium hover:bg-info/30"
+                className="flex-1 py-1.5 rounded bg-info/20 border border-info/40 text-[11px] text-info font-medium hover:bg-info/30 flex items-center justify-center gap-1"
               >
+                <Check size={12} />
                 {saving ? 'Saving...' : 'Save'}
               </button>
               <button
                 onClick={() => setEditing(false)}
-                className="px-3 py-1.5 rounded border border-border-dim text-[11px] text-text-muted hover:text-text-secondary"
+                className="px-3 py-1.5 rounded border border-border-dim text-[11px] text-text-muted hover:text-text-secondary flex items-center gap-1"
               >
+                <X size={12} />
                 Cancel
               </button>
             </div>

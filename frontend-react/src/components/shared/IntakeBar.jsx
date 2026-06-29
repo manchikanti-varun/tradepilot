@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef, useMemo } from 'react';
-import { Plus, Minus, Check, Search, ChevronDown } from 'lucide-react';
+import { Plus, Minus, Check, Search, ChevronDown, X } from 'lucide-react';
 import { positionApi } from '../../api/position';
 import { marketApi } from '../../api/market';
 import { useAppStore } from '../../store/useAppStore';
@@ -163,9 +163,9 @@ export default function IntakeBar() {
             {symbol && !searchOpen && (
               <button
                 onClick={(e) => { e.stopPropagation(); setSymbol(''); setPrice(''); }}
-                className="text-text-muted hover:text-text-primary ml-2 text-xs"
+                className="text-text-muted hover:text-text-primary ml-2"
               >
-                ✕
+                <X size={14} />
               </button>
             )}
             <ChevronDown size={13} className={`text-text-muted transition-transform duration-100 ml-1 ${searchOpen ? 'rotate-180' : ''}`} />
