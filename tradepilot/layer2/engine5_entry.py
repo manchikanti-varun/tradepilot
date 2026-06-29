@@ -71,12 +71,12 @@ async def check_entry_conditions(
             False, f"RSI {score.rsi:.1f} outside 35-72 range", symbol, ltp, score
         )
 
-    # VWAP proximity: within 1.5% (accounts for normal intraday drift in range-bound markets)
+    # VWAP proximity: within 2.0% (stocks naturally drift from VWAP as the day progresses)
     if score.vwap > 0:
         vwap_dist_pct = abs(ltp - score.vwap) / score.vwap * 100
-        if vwap_dist_pct > 1.5:
+        if vwap_dist_pct > 2.0:
             return EntryCheckResult(
-                False, f"LTP {vwap_dist_pct:.2f}% from VWAP (max 1.5%)", symbol, ltp, score
+                False, f"LTP {vwap_dist_pct:.2f}% from VWAP (max 2.0%)", symbol, ltp, score
             )
 
     # Market depth check
