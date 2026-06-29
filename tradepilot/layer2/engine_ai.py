@@ -571,7 +571,7 @@ async def dual_ai_analysis(symbol: str, data: dict) -> dict:
     # Build combined reasoning
     reasons = []
     if gemini_result and gemini_result.get("reasoning"):
-        reasons.append(f"Gemini: {gemini_result['reasoning']}")
+        reasons.append(f"Llama Scout: {gemini_result['reasoning']}")
     if groq_result and groq_result.get("reasoning"):
         reasons.append(f"Groq: {groq_result['reasoning']}")
 

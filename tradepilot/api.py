@@ -40,10 +40,34 @@ async def lifespan(app: FastAPI):
     logger.info("TradePilot AI starting up...")
     await initialize()
     start_scheduler()
+    # Load user Groq keys from DB into engine_ai module
+    await _load_groq_keys_from_db()
     logger.info("Startup complete — scheduler running")
     yield
     stop_scheduler()
     logger.info("Shutdown complete")
+
+
+async def _load_groq_keys_from_db():
+    """Load Groq API keys from first user's credentials into engine_ai module."""
+    try:
+        from tradepilot.auth import get_user_credentials, decrypt_credential
+        import tradepilot.layer2.engine_ai as engine_ai
+        async with get_db() as db:
+            row = await db.execute("SELECT user_id FROM users LIMIT 1")
+            user = await row.fetchone()
+            if user:
+                creds = await get_user_credentials(user["user_id"])
+                if creds and creds.get("groq_api_key"):
+                    engine_ai.GROQ_API_KEY = creds["groq_api_key"]
+                    os.environ["GROQ_API_KEY"] = creds["groq_api_key"]
+                    logger.info("Loaded Groq key 1 from DB")
+                if creds and creds.get("groq_api_key_2"):
+                    engine_ai.GROQ_API_KEY_2 = creds["groq_api_key_2"]
+                    os.environ["GROQ_API_KEY_2"] = creds["groq_api_key_2"]
+                    logger.info("Loaded Groq key 2 from DB")
+    except Exception as e:
+        logger.warning("Failed to load Groq keys from DB: %s", str(e)[:100])
 
 
 app = FastAPI(
@@ -1623,7 +1647,7 @@ async def get_stock_trading_plan(symbol: str, user: dict = Depends(get_current_u
             "confidence": ai_result["confidence"],
             "action": ai_result.get("action", "WAIT"),
             "reasoning": ai_result.get("reasoning", []),
-            "gemini_says": ai_result.get("gemini", {}).get("reasoning") if ai_result.get("gemini") else None,
+            "scout_says": ai_result.get("gemini", {}).get("reasoning") if ai_result.get("gemini") else None,
             "groq_says": ai_result.get("groq", {}).get("reasoning") if ai_result.get("groq") else None,
             # FIX 6.4: Surface degraded state to frontend
             "models_responded": ai_result.get("models_responded", 2),

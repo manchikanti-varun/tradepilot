@@ -144,6 +144,32 @@ export default function SignalFeed() {
 
   // Market open — no signals
   if (!signals || signals.length === 0) {
+    // Check if entry window is closed (after 2:40 PM IST)
+    const now = new Date(new Date().toLocaleString('en-US', { timeZone: 'Asia/Kolkata' }));
+    const hours = now.getHours();
+    const mins = now.getMinutes();
+    const isAfterEntryWindow = hours > 14 || (hours === 14 && mins >= 40);
+
+    if (isAfterEntryWindow) {
+      return (
+        <div className="p-6 flex flex-col items-center justify-center min-h-[300px]">
+          <div className="w-14 h-14 rounded-2xl bg-watch/10 flex items-center justify-center mb-4">
+            <Clock size={26} className="text-watch" />
+          </div>
+          <p className="text-sm font-semibold text-text-primary mb-1">Entry window closed</p>
+          <p className="text-xs text-text-muted mb-2 text-center max-w-[260px]">
+            No new signals after 2:40 PM. The system stops recommending entries
+            when there isn't enough time to manage a trade.
+          </p>
+          <div className="bg-overlay rounded-xl px-4 py-2.5 mt-2">
+            <p className="text-[10px] text-text-muted text-center">
+              Signals resume tomorrow at <span className="text-info font-semibold">9:20 AM</span>
+            </p>
+          </div>
+        </div>
+      );
+    }
+
     return (
       <div className="p-6 flex flex-col items-center justify-center min-h-[300px]">
         <div className="w-14 h-14 rounded-2xl bg-overlay flex items-center justify-center mb-4">

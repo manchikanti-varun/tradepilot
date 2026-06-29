@@ -95,13 +95,13 @@ export default function StockDetailModal({ symbol, onClose }) {
                     <div className="flex items-center gap-1.5 mb-1">
                       <div className="w-3 h-3 rounded-full bg-info" />
                       <span className="text-[9px] font-bold text-info">LLAMA SCOUT</span>
-                      {plan.ai_analysis.gemini_says
+                      {plan.ai_analysis.scout_says
                         ? <span className="text-[9px] text-text-muted ml-auto">responded</span>
                         : <span className="text-[9px] text-sell ml-auto">unavailable</span>
                       }
                     </div>
                     <p className="text-[10px] text-text-secondary leading-relaxed">
-                      {plan.ai_analysis.gemini_says || "Llama Scout did not respond — using Groq only"}
+                      {plan.ai_analysis.scout_says || "Llama Scout did not respond — using Groq only"}
                     </p>
                   </div>
 
