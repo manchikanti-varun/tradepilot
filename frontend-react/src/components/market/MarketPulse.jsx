@@ -1,3 +1,4 @@
+import { Activity, Shield } from 'lucide-react';
 import { useIST } from '../../hooks/useIST';
 import { useMarketStore } from '../../store/useMarketStore';
 import { useMarketHours } from '../../hooks/useMarketHours';
@@ -14,7 +15,6 @@ export default function MarketPulse() {
   const statusVariant = marketStatus === 'OPEN' ? 'buy' : marketStatus === 'PRE_MARKET' ? 'watch' : 'neutral';
   const statusLabel = marketStatus === 'OPEN' ? 'OPEN' : marketStatus === 'PRE_MARKET' ? 'PRE' : 'CLOSED';
 
-  // Countdown text
   let countdown = '';
   if (isMarketOpen && minutesUntilClose > 0) {
     const h = Math.floor(minutesUntilClose / 60);
@@ -27,44 +27,30 @@ export default function MarketPulse() {
   }
 
   return (
-    <div className="px-4 py-3 border-b border-border-dim">
-      {/* Row 1: Status + Time */}
+    <div className="px-4 py-3 border-b border-border-dim bg-surface/50">
       <div className="flex items-center justify-between">
-        <div className="flex items-center gap-2">
+        <div className="flex items-center gap-2.5">
           <Badge variant={statusVariant}>{statusLabel}</Badge>
-          <span className="font-mono text-xs text-text-primary">{formatted}</span>
+          <span className="font-mono text-xs font-semibold text-text-primary">{formatted}</span>
           {countdown && (
-            <span className="text-[9px] text-text-muted font-mono">· {countdown}</span>
+            <span className="text-[10px] text-text-muted font-mono">· {countdown}</span>
           )}
         </div>
-        {/* Risk indicator (compact) */}
-        {riskGate && riskGate !== 'GO' && (
-          <Badge variant={riskGate === 'HARD_STOP' ? 'sell' : 'watch'}>{riskGate}</Badge>
-        )}
-      </div>
-
-      {/* Row 2: VIX (only if available) */}
-      {vix !== null && (
-        <div className="flex items-center gap-3 mt-1.5">
-          <div className="flex items-center gap-1.5">
-            <span className="text-[9px] uppercase text-text-muted">VIX</span>
-            <span className={`font-mono text-[11px] font-medium ${vixColor}`}>{vix.toFixed(1)}</span>
-            <VixBar vix={vix} />
-          </div>
+        <div className="flex items-center gap-2">
+          {vix !== null && (
+            <div className="flex items-center gap-1.5 px-2 py-1 rounded-lg bg-overlay">
+              <Activity size={10} className={vixColor} />
+              <span className="text-[10px] text-text-muted">VIX</span>
+              <span className={`font-mono text-[11px] font-semibold ${vixColor}`}>{vix?.toFixed(1)}</span>
+            </div>
+          )}
+          {riskGate && riskGate !== 'GO' && (
+            <Badge variant={riskGate === 'HARD_STOP' ? 'sell' : 'watch'}>
+              <Shield size={9} className="mr-0.5" />{riskGate}
+            </Badge>
+          )}
         </div>
-      )}
-    </div>
-  );
-}
-
-function VixBar({ vix }) {
-  // VIX visual: 0-30 range mapped to a tiny bar
-  const pct = Math.min(100, (vix / 30) * 100);
-  const color = vix > 22 ? 'bg-sell' : vix > 15 ? 'bg-watch' : 'bg-buy';
-
-  return (
-    <div className="w-12 h-1 bg-border-dim rounded-full overflow-hidden ml-1">
-      <div className={`h-full ${color} rounded-full transition-all duration-300`} style={{ width: `${pct}%` }} />
+      </div>
     </div>
   );
 }
