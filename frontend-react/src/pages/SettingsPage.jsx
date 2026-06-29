@@ -56,18 +56,35 @@ export default function SettingsPage() {
       </div>
 
       {/* Capital */}
-      <CollapsibleSection title="Capital & Growth" icon={Shield}>
-        <SettingRow label="Current Capital (₹)" value={settings.current_capital || ''} onChange={(v) => {
-          const val = parseFloat(v);
-          if (val >= 1000) {
-            settingsApi.setCapital(val).then(() => {
-              useAppStore.getState().addToast({ type: 'success', message: `Capital set to ₹${val.toLocaleString()}` });
-            }).catch((e) => {
-              useAppStore.getState().addToast({ type: 'error', message: e.message });
-            });
-          }
-        }} />
-        <div className="text-[10px] text-text-muted">Min ₹1,000. Tier adjusts automatically.</div>
+      <CollapsibleSection title="Capital & Growth" icon={Shield} defaultOpen={true}>
+        <div className="space-y-2">
+          <label className="text-[11px] text-text-secondary block">Current Capital (₹)</label>
+          <input
+            type="number"
+            value={settings.current_capital || ''}
+            onChange={(e) => setSettings({ ...settings, current_capital: e.target.value })}
+            placeholder="10000"
+            className="w-full bg-base border border-border-dim rounded-lg px-4 py-3 text-lg font-mono text-text-primary outline-none focus:border-info [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none"
+          />
+          <button
+            onClick={() => {
+              const val = parseFloat(settings.current_capital);
+              if (val >= 1000) {
+                settingsApi.setCapital(val).then(() => {
+                  useAppStore.getState().addToast({ type: 'success', message: `Capital set to ₹${val.toLocaleString()}` });
+                }).catch((e) => {
+                  useAppStore.getState().addToast({ type: 'error', message: e.message });
+                });
+              } else {
+                useAppStore.getState().addToast({ type: 'error', message: 'Min ₹1,000' });
+              }
+            }}
+            className="w-full py-2 rounded bg-info/15 border border-info/30 text-xs text-info font-medium hover:bg-info/25 transition-colors"
+          >
+            Update Capital
+          </button>
+          <div className="text-[10px] text-text-muted">Min ₹1,000. Tier adjusts automatically. Enter your actual broker balance.</div>
+        </div>
       </CollapsibleSection>
 
       {/* Risk */}
@@ -149,8 +166,8 @@ export default function SettingsPage() {
   );
 }
 
-function CollapsibleSection({ title, icon: Icon, children }) {
-  const [open, setOpen] = useState(false);
+function CollapsibleSection({ title, icon: Icon, children, defaultOpen = false }) {
+  const [open, setOpen] = useState(defaultOpen);
   return (
     <div className="bg-surface border border-border-dim rounded-lg overflow-hidden">
       <button onClick={() => setOpen(!open)} className="w-full flex items-center gap-2 px-3 py-2.5 text-left hover:bg-overlay transition-colors duration-100">
@@ -168,7 +185,7 @@ function SettingRow({ label, value, onChange }) {
     <div className="flex items-center justify-between">
       <span className="text-[11px] text-text-secondary">{label}</span>
       <input type="number" value={value || ''} onChange={(e) => onChange(e.target.value)}
-        className="w-16 bg-base border border-border-dim rounded px-2 py-1 text-xs text-text-primary font-mono text-center outline-none focus:border-border-mid" />
+        className="w-24 bg-base border border-border-dim rounded px-3 py-1.5 text-xs text-text-primary font-mono text-right outline-none focus:border-info [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none" />
     </div>
   );
 }
