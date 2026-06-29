@@ -23,30 +23,30 @@ export default function MobileLayout() {
         <DisconnectedBanner />
       )}
 
-      <main className="flex-1 overflow-y-auto bg-base pb-[68px]">
+      <main className="flex-1 overflow-y-auto bg-base pb-[72px]">
         <Outlet />
       </main>
 
       {/* Bottom Tab Bar */}
-      <nav className="fixed bottom-0 left-0 right-0 bg-surface/95 backdrop-blur-md border-t border-border-dim safe-bottom z-50">
-        <div className="flex max-w-lg mx-auto">
+      <nav className="fixed bottom-0 left-0 right-0 bg-surface/95 backdrop-blur-xl border-t border-border-dim safe-bottom z-50">
+        <div className="flex max-w-lg mx-auto px-2">
           {NAV_ITEMS.map(({ path, label, icon: Icon }) => {
             const active = location.pathname === path;
             return (
               <button
                 key={path}
                 onClick={() => navigate(path)}
-                className={`flex-1 flex flex-col items-center py-2.5 gap-1 transition-all duration-100 ${
+                className={`flex-1 flex flex-col items-center py-3 gap-1 transition-all ${
                   active ? 'text-info' : 'text-text-muted'
                 }`}
               >
-                <div className={`relative ${active ? '' : ''}`}>
-                  <Icon size={20} strokeWidth={active ? 2.2 : 1.5} />
+                <div className="relative">
+                  <Icon size={22} strokeWidth={active ? 2 : 1.5} />
                   {active && (
-                    <div className="absolute -top-1 left-1/2 -translate-x-1/2 w-1 h-1 rounded-full bg-info" />
+                    <div className="absolute -top-1.5 left-1/2 -translate-x-1/2 w-5 h-0.5 rounded-full bg-info" />
                   )}
                 </div>
-                <span className={`text-[9px] ${active ? 'font-semibold' : 'font-medium'}`}>{label}</span>
+                <span className={`text-[10px] ${active ? 'font-semibold' : 'font-medium'}`}>{label}</span>
               </button>
             );
           })}

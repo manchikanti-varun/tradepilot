@@ -1,5 +1,5 @@
 import { Outlet, useNavigate, useLocation } from 'react-router-dom';
-import { LayoutDashboard, Radio, BarChart3, History, Newspaper, Settings, Scale, Filter } from 'lucide-react';
+import { LayoutDashboard, Radio, BarChart3, History, Newspaper, Settings, Scale, Filter, Activity } from 'lucide-react';
 import DisconnectedBanner from '../components/shared/DisconnectedBanner';
 import { useAppStore } from '../store/useAppStore';
 
@@ -26,32 +26,50 @@ export default function DesktopPageLayout() {
       )}
 
       {/* Top Nav Bar */}
-      <header className="h-10 flex items-center px-4 border-b border-border-dim bg-surface shrink-0">
-        <div className="flex items-center gap-1">
-          <div className="w-6 h-6 rounded bg-buy flex items-center justify-center mr-2">
-            <span className="text-white text-[10px] font-bold">TP</span>
-          </div>
+      <header className="h-12 flex items-center justify-between px-5 border-b border-border-dim bg-surface/80 backdrop-blur-sm shrink-0">
+        <div className="flex items-center gap-1.5">
+          {/* Logo */}
+          <button onClick={() => navigate('/dashboard')} className="flex items-center gap-2 mr-4 hover:opacity-80 transition-opacity">
+            <div className="w-7 h-7 rounded-lg bg-gradient-to-br from-buy to-info flex items-center justify-center">
+              <Activity size={14} className="text-white" />
+            </div>
+            <span className="text-sm font-bold gradient-text">TradePilot</span>
+          </button>
+
+          {/* Nav Items */}
           {NAV_ITEMS.map(({ path, label, icon: Icon }) => {
             const active = location.pathname === path;
             return (
               <button
                 key={path}
                 onClick={() => navigate(path)}
-                className={`flex items-center gap-1.5 px-2.5 py-1.5 rounded text-[11px] font-medium transition-colors duration-100 ${
-                  active ? 'bg-info/15 text-info' : 'text-text-muted hover:text-text-secondary'
+                className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium transition-all ${
+                  active
+                    ? 'bg-info/12 text-info shadow-sm'
+                    : 'text-text-muted hover:text-text-secondary hover:bg-overlay'
                 }`}
               >
-                <Icon size={13} strokeWidth={active ? 2 : 1.5} />
+                <Icon size={14} strokeWidth={active ? 2 : 1.5} />
                 {label}
               </button>
             );
           })}
         </div>
+
+        {/* Right side - connection status */}
+        <div className="flex items-center gap-2">
+          <div className={`w-2 h-2 rounded-full ${
+            connectionStatus === 'connected' || connectionStatus === 'polling' ? 'bg-buy pulse-dot' : 'bg-sell'
+          }`} />
+          <span className="text-[10px] text-text-muted font-mono">
+            {connectionStatus === 'polling' ? 'LIVE' : connectionStatus?.toUpperCase()}
+          </span>
+        </div>
       </header>
 
       {/* Page Content */}
       <main className="flex-1 overflow-y-auto bg-base">
-        <div className="max-w-4xl mx-auto">
+        <div className="max-w-5xl mx-auto px-4 py-4">
           <Outlet />
         </div>
       </main>
