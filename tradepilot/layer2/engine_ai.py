@@ -333,6 +333,13 @@ TODAY'S DATA:
 - VWAP: ₹{data.get('vwap', 0)}
 - Volume vs Average: {data.get('volume_ratio', 1.0)}x
 
+RECENT PRICE ACTION (MOST IMPORTANT - CHECK THIS FIRST):
+- Last 30-min trend: {data.get('recent_trend', 'UNKNOWN')}
+- Drop from 30-min high: {data.get('drop_from_30m_high_pct', 0)}%
+- 30-min high was: ₹{data.get('recent_30m_high', 0)}
+- Red candles in last 3: {data.get('last_3_candles_red', 0)} out of 3
+- RULE: If stock is FALLING or dropped >0.5% from recent high, you MUST say WAIT. Never buy a falling stock.
+
 TECHNICAL INDICATORS:
 - RSI (14): {data.get('rsi', 50)}
 - EMA 9: ₹{data.get('ema9', 0)}
@@ -350,15 +357,13 @@ LAST 5 DAYS:
 NEWS & MARKET CONTEXT:
 {news_context}
 
-ANALYZE THIS STOCK COMPLETELY. Consider:
-1. Is the trend bullish, bearish, or sideways?
-2. How is news/sentiment affecting this stock right now?
-3. Is this a good time to enter or should I wait?
-4. Where exactly should I buy?
-5. Where should I place my stop loss?
-6. What are realistic profit targets for today?
-7. What is the risk-reward ratio?
-8. Any warnings or red flags from news or technicals?
+ANALYZE THIS STOCK. Your #1 priority is RECENT PRICE ACTION — is it going UP or DOWN right now?
+
+CRITICAL RULES:
+- If recent_trend is FALLING → action MUST be "WAIT"
+- If drop_from_30m_high > 0.5% → action MUST be "WAIT"
+- If 2+ red candles in last 3 → action MUST be "WAIT"
+- Only say "BUY" if the stock is RISING or SIDEWAYS near support
 
 Respond ONLY in this JSON format:
 {{
@@ -369,7 +374,7 @@ Respond ONLY in this JSON format:
   "target_1": first target price,
   "target_2": second target price,
   "risk_reward": number like 1.5 or 2.0,
-  "reasoning": "3-4 sentences explaining your complete analysis. Include how news affects the stock, what the chart shows, key levels to watch, and any risks. Write in simple English that anyone can understand."
+  "reasoning": "3-4 sentences. Start with whether the stock is currently rising or falling. Then explain key levels and risks."
 }}"""
 
 

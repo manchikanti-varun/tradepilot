@@ -1479,6 +1479,18 @@ async def get_stock_trading_plan(symbol: str, user: dict = Depends(get_current_u
     # --- Extract today's session open price (9:15 AM IST candle) ---
     open_price = _extract_session_open(candles_5m, symbol)
 
+    # --- Recent price action (last 30 min) for trend context ---
+    recent_high_30m = float(highs.iloc[-6:].max()) if len(highs) >= 6 else day_high
+    recent_low_30m = float(lows.iloc[-6:].min()) if len(lows) >= 6 else day_low
+    drop_from_recent_high_pct = round((recent_high_30m - ltp) / recent_high_30m * 100, 2) if recent_high_30m > 0 else 0
+    # Check last 3 candles direction
+    last3_red = 0
+    if len(candles_5m) >= 3:
+        for i in range(-3, 0):
+            if float(candles_5m["close"].iloc[i]) < float(candles_5m["open"].iloc[i]):
+                last3_red += 1
+    recent_trend = "FALLING" if drop_from_recent_high_pct > 0.5 or last3_red >= 2 else "RISING" if ltp > recent_high_30m * 0.998 else "SIDEWAYS"
+
     # 5-day price history for AI context
     price_history = ""
     if not candles_1d.empty:
@@ -1527,6 +1539,10 @@ async def get_stock_trading_plan(symbol: str, user: dict = Depends(get_current_u
         "resistance": round(resistance, 2),
         "price_history": price_history,
         "news_context": news_context,
+        "recent_trend": recent_trend,
+        "drop_from_30m_high_pct": drop_from_recent_high_pct,
+        "recent_30m_high": round(recent_high_30m, 2),
+        "last_3_candles_red": last3_red,
     }
 
     # Let AI analyze everything
