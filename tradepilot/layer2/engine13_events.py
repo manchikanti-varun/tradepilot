@@ -65,7 +65,7 @@ def evaluate_event_risk(target_date: Optional[date] = None) -> EventRisk:
     if not ENABLE_ENGINE13_EVENTS:
         return EventRisk(
             level="NONE", events_today=[], size_multiplier=1.0,
-            grade_floor="A", exit_by_hour=0, is_expiry_day=False, stop_widen_pct=0,
+            grade_floor="B", exit_by_hour=0, is_expiry_day=False, stop_widen_pct=0,
         )
 
     d = target_date or date.today()
@@ -128,7 +128,7 @@ def evaluate_event_risk(target_date: Optional[date] = None) -> EventRisk:
     else:
         return EventRisk(
             level="NONE", events_today=events,
-            size_multiplier=1.0, grade_floor="A",
+            size_multiplier=1.0, grade_floor="B",
             exit_by_hour=0, is_expiry_day=False,
             stop_widen_pct=0,
         )

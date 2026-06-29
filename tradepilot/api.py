@@ -1319,6 +1319,50 @@ async def get_top_movers():
     }
 
 
+@app.get("/api/signals/debug")
+async def get_signals_debug():
+    """Debug endpoint — shows why signals are empty."""
+    from zoneinfo import ZoneInfo
+    from tradepilot.config import Grade
+
+    state = get_state()
+    now_ist_time = datetime.now(ZoneInfo("Asia/Kolkata"))
+    active_trade = await state.tracker.get_active_trade() if state.tracker else None
+
+    # Count stocks by grade
+    grade_counts = {}
+    for s in state.watchlist_scores:
+        g = s.grade.value if hasattr(s.grade, 'value') else str(s.grade)
+        grade_counts[g] = grade_counts.get(g, 0) + 1
+
+    # Top 5 by composite
+    top5 = []
+    for s in state.watchlist_scores[:5]:
+        top5.append({
+            "symbol": s.symbol, "composite": s.composite,
+            "grade": s.grade.value if hasattr(s.grade, 'value') else str(s.grade),
+            "rsi": round(s.rsi, 1), "vwap": round(s.vwap, 2), "ltp": s.ltp,
+            "vwap_dist_pct": round(abs(s.ltp - s.vwap) / s.vwap * 100, 2) if s.vwap > 0 else None,
+            "volume_ratio": round(s.volume_ratio, 2),
+        })
+
+    return {
+        "time_ist": now_ist_time.isoformat(),
+        "pipeline_running": state.is_running,
+        "last_scan": state.last_scan_time.isoformat() if state.last_scan_time else None,
+        "last_error": state.last_error,
+        "active_trade": active_trade.ticker if active_trade else None,
+        "risk_gate": state.risk_state.gate.value if state.risk_state else "UNKNOWN",
+        "risk_reason": state.risk_state.reason if state.risk_state else None,
+        "market_mode": state.market_mode.value,
+        "signals_count": len(state.signals),
+        "watchlist_scored": len(state.watchlist_scores),
+        "grade_distribution": grade_counts,
+        "top5_candidates": top5,
+        "consecutive_data_failures": state.consecutive_data_failures,
+    }
+
+
 @app.get("/api/signals/history")
 async def get_signal_history(limit: int = 50):
     """Past signals that fired — learn which ones worked."""

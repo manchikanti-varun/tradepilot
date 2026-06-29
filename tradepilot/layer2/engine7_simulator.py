@@ -56,8 +56,8 @@ def simulate_trade(
         )
 
     # Target prices
-    best_target = ltp + atr * 0.9
-    avg_target = ltp + atr * 0.35
+    best_target = ltp + atr * 1.2
+    avg_target = ltp + atr * 0.6
     worst_target = stop_price  # stop hit
 
     scenarios = []

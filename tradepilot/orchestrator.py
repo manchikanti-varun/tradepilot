@@ -194,7 +194,7 @@ async def _run_live_pipeline_inner():
     else:
         state.event_risk = EventRisk(
             level="NONE", events_today=[], size_multiplier=1.0,
-            grade_floor="A", exit_by_hour=0, is_expiry_day=False, stop_widen_pct=0,
+            grade_floor="B", exit_by_hour=0, is_expiry_day=False, stop_widen_pct=0,
         )
 
     # Engine 1: Market data
@@ -407,7 +407,7 @@ async def _build_signal_card(score: StockScore, priority: int, state: SystemStat
         return None
 
     # Size multipliers
-    adjusted_qty = int(allocation.qty * state.risk_state.size_multiplier * state.event_risk.size_multiplier)
+    adjusted_qty = max(1, int(allocation.qty * state.risk_state.size_multiplier * state.event_risk.size_multiplier))
     if adjusted_qty == 0:
         return None
 
