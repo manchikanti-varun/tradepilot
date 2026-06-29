@@ -184,13 +184,17 @@ async def score_stock(
         ema21 = compute_ema(closes, 21)
         atr = compute_atr(candles)
 
-        # RSI scoring: 45-65 optimal, penalize extremes
+        # RSI scoring: 45-65 optimal buy zone, penalize overbought heavily
         if 45 <= rsi <= 65:
             rsi_score = 80 + (10 - abs(rsi - 55))
-        elif 35 <= rsi < 45 or 65 < rsi <= 75:
-            rsi_score = 60
+        elif 35 <= rsi < 45:
+            rsi_score = 60  # slightly oversold — OK to buy
+        elif 65 < rsi <= 72:
+            rsi_score = 55  # getting warm — cautious
+        elif rsi > 72:
+            rsi_score = 25  # overbought — likely reversal, don't buy
         else:
-            rsi_score = 30
+            rsi_score = 30  # RSI < 35 — deeply oversold, risky
 
         # VWAP relation: price near or above VWAP is bullish
         vwap_relation = "above" if ltp >= vwap else "below"

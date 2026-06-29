@@ -65,10 +65,10 @@ async def check_entry_conditions(
     if event_risk == "HIGH":
         return EntryCheckResult(False, "HIGH event risk — A+ only in Phase 1", symbol, ltp, score)
 
-    # RSI check: 30-78 (avoid extreme overbought/oversold but allow momentum stocks)
-    if not (30 <= score.rsi <= 78):
+    # RSI check: 35-72 (don't buy overbought stocks that are about to reverse)
+    if not (35 <= score.rsi <= 72):
         return EntryCheckResult(
-            False, f"RSI {score.rsi:.1f} outside 30-78 range", symbol, ltp, score
+            False, f"RSI {score.rsi:.1f} outside 35-72 range", symbol, ltp, score
         )
 
     # VWAP proximity: within 1.5% (accounts for normal intraday drift in range-bound markets)
