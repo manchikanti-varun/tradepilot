@@ -1487,6 +1487,10 @@ async def get_stock_trading_plan(symbol: str, user: dict = Depends(get_current_u
     ema9 = compute_ema(closes, 9)
     ema21 = compute_ema(closes, 21)
     daily_atr = compute_atr(candles_1d) if not candles_1d.empty and len(candles_1d) >= 5 else 0
+    # Fallback: estimate daily ATR from 5m candles if daily fetch failed
+    if daily_atr == 0:
+        atr_5m = compute_atr(candles_5m)
+        daily_atr = round(atr_5m * 6, 2) if atr_5m > 0 else round(ltp * 0.015, 2)
 
     recent_vol = float(volumes.iloc[-5:].mean()) if len(volumes) >= 5 else 0
     avg_vol = float(volumes.iloc[-20:].mean()) if len(volumes) >= 20 else recent_vol
@@ -1641,6 +1645,11 @@ async def get_stock_trading_plan(symbol: str, user: dict = Depends(get_current_u
         "risk_reward": rr,
         "trade_viable": trade_viable,
         "viability_note": None if trade_viable else "Target too close — charges eat the profit. Wait for a better entry.",
+        "conditional_entries": _generate_conditional_entries(
+            ltp=ltp, support=support, resistance=resistance,
+            day_high=day_high, day_low=day_low, daily_atr=daily_atr,
+            recent_trend=recent_trend, ai_action=ai_result.get("action", "WAIT"),
+        ),
         "suggested_qty": qty,
         "capital_required": round(qty * entry / leverage, 2),
         "estimated_charges": round(charges, 2),
@@ -1667,6 +1676,53 @@ async def get_stock_trading_plan(symbol: str, user: dict = Depends(get_current_u
 # ═══════════════════════════════════════════════════════════════
 # FEATURES 1-24: FULL TRADING TERMINAL ENDPOINTS
 # ═══════════════════════════════════════════════════════════════
+
+
+def _generate_conditional_entries(ltp, support, resistance, day_high, day_low, daily_atr, recent_trend, ai_action):
+    """Generate 'When would this be a trade?' suggestions based on key levels."""
+    suggestions = []
+
+    if ai_action in ("WAIT", "SELL") or recent_trend == "FALLING":
+        # Stock is not ready — give conditions for when it WOULD be ready
+        if resistance and resistance > ltp:
+            target_above = round(resistance + daily_atr * 0.3, 2) if daily_atr > 0 else round(resistance + ltp * 0.005, 2)
+            suggestions.append({
+                "condition": f"Breaks above ₹{resistance:.2f} with volume",
+                "action": "BUY",
+                "entry": round(resistance + 0.5, 2),
+                "target": target_above,
+                "note": "Breakout trade — enter on confirmed move above resistance",
+            })
+
+        if support and support < ltp:
+            target_from_support = round(support + (resistance - support) * 0.6, 2) if resistance > support else round(support + daily_atr * 0.5, 2)
+            suggestions.append({
+                "condition": f"Holds ₹{support:.2f} support and forms green candle",
+                "action": "BUY",
+                "entry": round(support + (ltp - support) * 0.2, 2),
+                "target": target_from_support,
+                "note": "Bounce trade — wait for reversal confirmation at support",
+            })
+
+        if day_high > ltp and day_high > resistance:
+            suggestions.append({
+                "condition": f"Reclaims ₹{round(day_high * 0.998, 2)} (near day high)",
+                "action": "BUY",
+                "entry": round(day_high * 0.998, 2),
+                "target": round(day_high + daily_atr * 0.4, 2),
+                "note": "Momentum trade — new high of day = strong buyers",
+            })
+    else:
+        # Stock is rising/sideways — already in a good zone
+        suggestions.append({
+            "condition": "Current setup looks good",
+            "action": "BUY",
+            "entry": round(ltp, 2),
+            "target": round(ltp + daily_atr * 0.6, 2),
+            "note": "Trend is favorable — enter near current price with stop at support",
+        })
+
+    return suggestions
 
 
 class PriceAlertRequest(BaseModel):

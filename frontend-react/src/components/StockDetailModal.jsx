@@ -237,6 +237,34 @@ export default function StockDetailModal({ symbol, onClose }) {
             {/* ═══════════════════════════════════════════════════════ */}
             <div className="border-t border-border-dim my-4" />
             <TodaysPriceAction plan={plan} />
+
+            {/* Conditional Entry Suggestions — when would this be a trade? */}
+            {plan.conditional_entries && plan.conditional_entries.length > 0 && plan.ai_analysis?.action !== 'BUY' && (
+              <>
+                <div className="border-t border-border-dim my-4" />
+                <div className="bg-surface border border-info/20 rounded-lg p-4">
+                  <h3 className="text-xs font-bold text-info mb-3">📋 When would this be a trade?</h3>
+                  <div className="space-y-3">
+                    {plan.conditional_entries.map((entry, i) => (
+                      <div key={i} className="bg-overlay rounded-lg p-3 border border-border-dim">
+                        <div className="flex items-start gap-2">
+                          <span className="text-buy font-bold text-xs mt-0.5">→</span>
+                          <div>
+                            <p className="text-[11px] font-medium text-text-primary">{entry.condition}</p>
+                            <p className="text-[10px] text-text-muted mt-1">{entry.note}</p>
+                            <div className="flex gap-3 mt-1.5 text-[10px] font-mono">
+                              <span className="text-text-secondary">Entry: <span className="text-buy">₹{entry.entry}</span></span>
+                              <span className="text-text-secondary">Target: <span className="text-buy">₹{entry.target}</span></span>
+                            </div>
+                          </div>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              </>
+            )}
+
             <div className="border-t border-border-dim my-4" />
 
             {/* Why This Stock (AI Reasoning) */}
