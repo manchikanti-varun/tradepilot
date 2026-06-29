@@ -1,5 +1,7 @@
+import { useState } from 'react';
 import { usePositionStore } from '../../store/usePositionStore';
 import { usePnL } from '../../hooks/usePnL';
+import { positionApi } from '../../api/position';
 import Card from '../shared/Card';
 import MonoNumber from '../shared/MonoNumber';
 import Badge from '../shared/Badge';
@@ -8,6 +10,7 @@ import ExitSignalAlert from './ExitSignalAlert';
 import PnLDisplay from './PnLDisplay';
 import SectionLabel from '../shared/SectionLabel';
 import { formatCurrency } from '../../api/client';
+import { useAppStore } from '../../store/useAppStore';
 
 export default function PositionCard() {
   const active = usePositionStore((s) => s.active);
@@ -23,6 +26,11 @@ export default function PositionCard() {
   const chargesEstimate = usePositionStore((s) => s.chargesEstimate);
   const { flashClass } = usePnL();
 
+  const [editing, setEditing] = useState(false);
+  const [editPrice, setEditPrice] = useState('');
+  const [editQty, setEditQty] = useState('');
+  const [saving, setSaving] = useState(false);
+
   if (!active) return null;
 
   const timeInTrade = entryTime
@@ -34,6 +42,25 @@ export default function PositionCard() {
     : 0;
 
   const borderClass = shouldExit ? 'border-sell/50' : flashClass || '';
+
+  const startEdit = () => {
+    setEditPrice(entryPrice?.toFixed(2) || '');
+    setEditQty(String(qty || ''));
+    setEditing(true);
+  };
+
+  const saveEdit = async () => {
+    if (!editPrice || !editQty) return;
+    setSaving(true);
+    try {
+      await positionApi.editEntry(parseFloat(editPrice), parseInt(editQty));
+      useAppStore.getState().addToast({ type: 'success', message: 'Position updated' });
+      setEditing(false);
+    } catch (e) {
+      useAppStore.getState().addToast({ type: 'error', message: e.message || 'Failed to update' });
+    }
+    setSaving(false);
+  };
 
   return (
     <div className="px-4 py-3">
@@ -50,32 +77,81 @@ export default function PositionCard() {
               {phase || 'HOLDING'}
             </Badge>
           </div>
+          <button
+            onClick={startEdit}
+            className="text-[10px] text-info hover:text-text-primary transition-colors"
+          >
+            ✏️ Edit
+          </button>
         </div>
 
-        {/* Entry / LTP */}
-        <div className="grid grid-cols-2 gap-2 text-[11px] mb-2">
-          <div>
-            <span className="text-text-muted">Entry</span>
-            <MonoNumber value={` ₹${entryPrice?.toFixed(2)}`} className="ml-1" />
+        {/* Edit Mode */}
+        {editing ? (
+          <div className="space-y-2 mb-3 p-2 bg-overlay rounded border border-border-dim">
+            <div className="grid grid-cols-2 gap-2">
+              <div>
+                <label className="text-[9px] uppercase text-text-muted">Entry Price</label>
+                <input
+                  type="number"
+                  value={editPrice}
+                  onChange={(e) => setEditPrice(e.target.value)}
+                  step="0.05"
+                  className="w-full mt-1 bg-base border border-border-dim rounded px-2 py-1.5 text-sm font-mono text-text-primary outline-none focus:border-info [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none"
+                />
+              </div>
+              <div>
+                <label className="text-[9px] uppercase text-text-muted">Quantity</label>
+                <input
+                  type="number"
+                  value={editQty}
+                  onChange={(e) => setEditQty(e.target.value)}
+                  min="1"
+                  className="w-full mt-1 bg-base border border-border-dim rounded px-2 py-1.5 text-sm font-mono text-text-primary outline-none focus:border-info [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none"
+                />
+              </div>
+            </div>
+            <div className="flex gap-2">
+              <button
+                onClick={saveEdit}
+                disabled={saving}
+                className="flex-1 py-1.5 rounded bg-info/20 border border-info/40 text-[11px] text-info font-medium hover:bg-info/30"
+              >
+                {saving ? 'Saving...' : 'Save'}
+              </button>
+              <button
+                onClick={() => setEditing(false)}
+                className="px-3 py-1.5 rounded border border-border-dim text-[11px] text-text-muted hover:text-text-secondary"
+              >
+                Cancel
+              </button>
+            </div>
           </div>
-          <div>
-            <span className="text-text-muted">Qty</span>
-            <MonoNumber value={` ${qty}`} className="ml-1" />
+        ) : (
+          /* Entry / LTP */
+          <div className="grid grid-cols-2 gap-2 text-[11px] mb-2">
+            <div>
+              <span className="text-text-muted">Entry</span>
+              <MonoNumber value={` ₹${entryPrice?.toFixed(2)}`} className="ml-1" />
+            </div>
+            <div>
+              <span className="text-text-muted">Qty</span>
+              <MonoNumber value={` ${qty}`} className="ml-1" />
+            </div>
+            <div>
+              <span className="text-text-muted">LTP</span>
+              <MonoNumber value={` ₹${currentLtp?.toFixed(2)}`} className="ml-1" />
+              <MonoNumber
+                value={` (${pctChange >= 0 ? '+' : ''}${pctChange.toFixed(2)}%)`}
+                color={pctChange >= 0 ? 'buy' : 'sell'}
+                className="text-[10px]"
+              />
+            </div>
+            <div>
+              <span className="text-text-muted">Time</span>
+              <span className="text-text-secondary ml-1 font-mono">{timeInTrade}</span>
+            </div>
           </div>
-          <div>
-            <span className="text-text-muted">LTP</span>
-            <MonoNumber value={` ₹${currentLtp?.toFixed(2)}`} className="ml-1" />
-            <MonoNumber
-              value={` (${pctChange >= 0 ? '+' : ''}${pctChange.toFixed(2)}%)`}
-              color={pctChange >= 0 ? 'buy' : 'sell'}
-              className="text-[10px]"
-            />
-          </div>
-          <div>
-            <span className="text-text-muted">Time</span>
-            <span className="text-text-secondary ml-1 font-mono">{timeInTrade}</span>
-          </div>
-        </div>
+        )}
 
         {/* Progress Bar */}
         <PositionProgress

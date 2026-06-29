@@ -7,4 +7,5 @@ export const positionApi = {
   intake: (text) => post('/api/intake', { text }),
   confirmIntake: (data) => post('/api/intake/confirm', data),
   quickTrade: (symbol, price, qty, intent) => post(`/api/intake/quick?symbol=${symbol}&price=${price}&qty=${qty}&intent=${intent}`, {}),
+  editEntry: (price, qty) => post('/api/position/edit', { entry_price: price, qty }),
 };

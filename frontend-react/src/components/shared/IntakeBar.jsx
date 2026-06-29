@@ -38,15 +38,27 @@ export default function IntakeBar() {
 
   // Filtered stocks based on search
   const filteredStocks = useMemo(() => {
-    if (!searchQuery) return stocks.slice(0, 20);
+    if (!searchQuery) return stocks.slice(0, 30);
     const q = searchQuery.toLowerCase();
     return stocks.filter((s) =>
-      s.symbol.toLowerCase().includes(q) || s.sector?.toLowerCase().includes(q)
-    ).slice(0, 15);
+      s.symbol.toLowerCase().includes(q) ||
+      s.sector?.toLowerCase().includes(q) ||
+      s.symbol.toLowerCase().startsWith(q)
+    ).sort((a, b) => {
+      // Prioritize stocks that START with the query
+      const aStarts = a.symbol.toLowerCase().startsWith(q) ? 0 : 1;
+      const bStarts = b.symbol.toLowerCase().startsWith(q) ? 0 : 1;
+      return aStarts - bStarts;
+    }).slice(0, 20);
   }, [stocks, searchQuery]);
 
   const selectSymbol = (sym) => {
     setSymbol(sym);
+    // Auto-fill price with LTP
+    const stock = stocks.find((s) => s.symbol === sym);
+    if (stock?.ltp) {
+      setPrice(String(stock.ltp.toFixed(2)));
+    }
     setSearchQuery('');
     setSearchOpen(false);
   };
@@ -128,48 +140,64 @@ export default function IntakeBar() {
         <div ref={dropdownRef} className="relative">
           <label className="text-[9px] uppercase text-text-muted tracking-wider block mb-1">Stock Symbol</label>
           <div
-            className={`flex items-center bg-base border rounded-lg px-3 py-2.5 cursor-pointer transition-colors duration-100 ${
-              searchOpen ? 'border-border-mid' : 'border-border-dim'
+            className={`flex items-center bg-base border rounded-lg px-3 py-3 cursor-pointer transition-colors duration-100 ${
+              searchOpen ? 'border-info/50 ring-1 ring-info/20' : 'border-border-dim'
             }`}
             onClick={() => setSearchOpen(true)}
           >
-            <Search size={13} className="text-text-muted mr-2 shrink-0" />
+            <Search size={14} className="text-text-muted mr-2 shrink-0" />
             {searchOpen ? (
               <input
                 type="text"
                 value={searchQuery}
                 onChange={(e) => setSearchQuery(e.target.value)}
-                placeholder="Search stock..."
+                placeholder="Type stock name... (e.g. POWER, AXIS, RELIANCE)"
                 autoFocus
                 className="flex-1 bg-transparent text-sm font-mono text-text-primary outline-none placeholder:text-text-muted"
               />
             ) : (
-              <span className={`flex-1 text-sm font-mono ${symbol ? 'text-text-primary' : 'text-text-muted'}`}>
-                {symbol || 'Select stock...'}
+              <span className={`flex-1 text-sm font-mono ${symbol ? 'text-text-primary font-semibold' : 'text-text-muted'}`}>
+                {symbol || 'Search stock...'}
               </span>
             )}
-            <ChevronDown size={13} className={`text-text-muted transition-transform duration-100 ${searchOpen ? 'rotate-180' : ''}`} />
+            {symbol && !searchOpen && (
+              <button
+                onClick={(e) => { e.stopPropagation(); setSymbol(''); setPrice(''); }}
+                className="text-text-muted hover:text-text-primary ml-2 text-xs"
+              >
+                ✕
+              </button>
+            )}
+            <ChevronDown size={13} className={`text-text-muted transition-transform duration-100 ml-1 ${searchOpen ? 'rotate-180' : ''}`} />
           </div>
 
           {/* Dropdown */}
           {searchOpen && (
-            <div className="absolute top-full left-0 right-0 mt-1 bg-elevated border border-border-dim rounded-lg shadow-xl z-50 max-h-48 overflow-y-auto">
+            <div className="absolute top-full left-0 right-0 mt-1 bg-elevated border border-border-mid rounded-lg shadow-2xl z-50 max-h-64 overflow-y-auto">
+              {/* Section header */}
+              <div className="px-3 py-1.5 bg-overlay border-b border-border-dim sticky top-0">
+                <span className="text-[9px] uppercase text-text-muted tracking-wider">
+                  {searchQuery ? `Results for "${searchQuery}"` : 'Popular Stocks'}
+                </span>
+              </div>
               {filteredStocks.length > 0 ? (
                 filteredStocks.map((s) => (
                   <button
                     key={s.symbol}
                     onClick={() => selectSymbol(s.symbol)}
-                    className="w-full flex items-center justify-between px-3 py-2.5 hover:bg-overlay text-left transition-colors duration-75 border-b border-border-dim last:border-0"
+                    className="w-full flex items-center justify-between px-3 py-3 hover:bg-info/5 text-left transition-colors duration-75 border-b border-border-dim/50 last:border-0"
                   >
-                    <div className="flex items-center gap-2">
-                      <span className="text-xs font-mono font-medium text-text-primary">{s.symbol}</span>
-                      <span className="text-[9px] text-text-muted">{s.sector}</span>
+                    <div className="flex flex-col">
+                      <span className="text-sm font-mono font-semibold text-text-primary">{s.symbol}</span>
+                      <span className="text-[10px] text-text-muted mt-0.5">{s.sector}</span>
                     </div>
-                    <span className="text-[10px] font-mono text-text-secondary">₹{s.ltp?.toFixed(1)}</span>
+                    <div className="text-right">
+                      <span className="text-xs font-mono text-text-primary">₹{s.ltp?.toFixed(2)}</span>
+                    </div>
                   </button>
                 ))
               ) : (
-                <div className="px-3 py-4 text-center text-[11px] text-text-muted">
+                <div className="px-3 py-6 text-center text-[11px] text-text-muted">
                   No stocks found for "{searchQuery}"
                 </div>
               )}

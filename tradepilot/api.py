@@ -1684,6 +1684,43 @@ async def get_time_performance():
     return {"hours": result}
 
 
+@app.post("/api/position/edit")
+async def edit_position(body: dict, user: dict = Depends(get_current_user)):
+    """Edit entry price and/or qty of active position."""
+    state = get_state()
+    trade = await state.tracker.get_active_trade()
+    if trade is None:
+        raise HTTPException(status_code=404, detail="No active position to edit")
+
+    new_price = body.get("entry_price")
+    new_qty = body.get("qty")
+
+    if new_price is not None and (new_price <= 0 or new_price > 50000):
+        raise HTTPException(status_code=400, detail="Price must be between 0 and 50000")
+    if new_qty is not None and (new_qty <= 0 or new_qty > 5000):
+        raise HTTPException(status_code=400, detail="Qty must be between 1 and 5000")
+
+    async with get_db() as db:
+        if new_price and new_qty:
+            await db.execute(
+                "UPDATE trades SET entry_price = ?, qty = ? WHERE id = ? AND status = 'OPEN'",
+                (new_price, new_qty, trade.id),
+            )
+        elif new_price:
+            await db.execute(
+                "UPDATE trades SET entry_price = ? WHERE id = ? AND status = 'OPEN'",
+                (new_price, trade.id),
+            )
+        elif new_qty:
+            await db.execute(
+                "UPDATE trades SET qty = ? WHERE id = ? AND status = 'OPEN'",
+                (new_qty, trade.id),
+            )
+        await db.commit()
+
+    return {"status": "updated", "message": f"Position updated — entry ₹{new_price or trade.entry_price}, qty {new_qty or trade.qty}"}
+
+
 @app.get("/api/position/live-pnl")
 async def get_live_pnl(user: dict = Depends(get_current_user)):
     """Feature 1: Live P&L — real-time profit/loss for active position."""
