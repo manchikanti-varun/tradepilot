@@ -376,7 +376,7 @@ async def _build_signal_card(score: StockScore, priority: int, state: SystemStat
         event_risk=state.event_risk.level,
     )
     if not entry_result.passed:
-        await log_rejection(score.symbol, "ENTRY_TIMING_FAILED", score.composite, score.ltp)
+        await log_rejection(score.symbol, f"ENGINE5: {entry_result.reason}", score.composite, score.ltp)
         return None
 
     # ATR — use daily candles for proper intraday targets
@@ -394,6 +394,7 @@ async def _build_signal_card(score: StockScore, priority: int, state: SystemStat
     # Use daily ATR if available, otherwise estimate from 5m (multiply by ~3)
     atr = daily_atr if daily_atr > 0 else (atr_5m * 3 if atr_5m > 0 else 0)
     if atr <= 0:
+        await log_rejection(score.symbol, "ATR_ZERO", score.composite, score.ltp)
         return None
 
     # Engine 6
@@ -404,6 +405,7 @@ async def _build_signal_card(score: StockScore, priority: int, state: SystemStat
         progress_pct_to_next_tier=growth.progress_pct_to_next_tier,
     )
     if not allocation.viable:
+        await log_rejection(score.symbol, f"ENGINE6: {allocation.message}", score.composite, score.ltp)
         return None
 
     # Size multipliers
@@ -415,7 +417,7 @@ async def _build_signal_card(score: StockScore, priority: int, state: SystemStat
     sim = simulate_trade(ltp=score.ltp, qty=adjusted_qty, atr=atr,
                          capital_to_use=allocation.capital_to_use, stop_price=allocation.stop_price)
     if not sim.passed:
-        await log_rejection(score.symbol, "CHARGES_TOO_HIGH", score.composite, score.ltp)
+        await log_rejection(score.symbol, f"ENGINE7: {sim.block_reason} (RR={sim.risk_reward}, qty={adjusted_qty}, atr={atr:.2f})", score.composite, score.ltp)
         return None
 
     target = score.ltp + atr * 0.6

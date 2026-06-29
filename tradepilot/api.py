@@ -1346,6 +1346,24 @@ async def get_signals_debug():
             "volume_ratio": round(s.volume_ratio, 2),
         })
 
+    # Recent rejections from DB
+    rejections = []
+    try:
+        async with get_db() as db:
+            rows = await db.execute(
+                "SELECT ticker, reason, composite_score, ltp_at_rejection, timestamp FROM rejection_log "
+                "WHERE date = ? ORDER BY timestamp DESC LIMIT 10",
+                (now_ist_time.strftime("%Y-%m-%d"),),
+            )
+            async for row in rows:
+                rejections.append({
+                    "symbol": row["ticker"], "reason": row["reason"],
+                    "composite": row["composite_score"], "ltp": row["ltp_at_rejection"],
+                    "time": row["timestamp"],
+                })
+    except Exception as e:
+        rejections = [{"error": f"Could not read rejection_log: {str(e)[:100]}"}]
+
     return {
         "time_ist": now_ist_time.isoformat(),
         "pipeline_running": state.is_running,
@@ -1359,6 +1377,7 @@ async def get_signals_debug():
         "watchlist_scored": len(state.watchlist_scores),
         "grade_distribution": grade_counts,
         "top5_candidates": top5,
+        "recent_rejections": rejections,
         "consecutive_data_failures": state.consecutive_data_failures,
     }
 
