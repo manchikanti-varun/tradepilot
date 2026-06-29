@@ -23,15 +23,15 @@ export default function FormField({
     : type;
 
   const borderClass = error
-    ? 'border-sell focus:border-sell'
+    ? 'border-sell focus:border-sell focus:ring-1 focus:ring-sell/20'
     : success
-    ? 'border-buy focus:border-buy'
-    : 'border-border-dim focus:border-border-mid';
+    ? 'border-buy focus:border-buy focus:ring-1 focus:ring-buy/20'
+    : 'border-border-dim focus:border-info focus:ring-1 focus:ring-info/20';
 
   return (
     <div className="w-full">
       {label && (
-        <label className="block text-[10px] uppercase tracking-[0.08em] text-text-muted font-medium mb-1.5">
+        <label className="block text-[10px] uppercase tracking-wider text-text-muted font-semibold mb-1.5">
           {label}
         </label>
       )}
@@ -46,21 +46,21 @@ export default function FormField({
           minLength={minLength}
           required={required}
           onKeyDown={onKeyDown}
-          className={`w-full h-10 bg-elevated border ${borderClass} rounded-md px-3 text-sm text-text-primary outline-none transition-colors duration-100 placeholder:text-text-muted disabled:opacity-50 disabled:cursor-not-allowed ${showToggle ? 'pr-10' : ''}`}
+          className={`w-full h-11 bg-elevated border ${borderClass} rounded-xl px-4 text-sm text-text-primary outline-none transition-all placeholder:text-text-muted disabled:opacity-40 disabled:cursor-not-allowed ${showToggle ? 'pr-11' : ''}`}
         />
         {showToggle && type === 'password' && (
           <button
             type="button"
             onClick={() => setVisible(!visible)}
             tabIndex={-1}
-            className="absolute right-3 top-1/2 -translate-y-1/2 text-text-muted hover:text-text-secondary transition-colors duration-100"
+            className="absolute right-3.5 top-1/2 -translate-y-1/2 text-text-muted hover:text-text-secondary transition-colors"
           >
             {visible ? <EyeOff size={16} /> : <Eye size={16} />}
           </button>
         )}
       </div>
       {error && (
-        <p className="text-[12px] text-sell mt-1.5">{error}</p>
+        <p className="text-[11px] text-sell mt-1.5 font-medium">{error}</p>
       )}
     </div>
   );
