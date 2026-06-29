@@ -83,49 +83,54 @@ export default function NewsPage() {
 
       {/* AI Analysis */}
       {analysis?.analysis && (
-        <div className="bg-conflicting/5 border border-conflicting/20 rounded-lg p-3">
-          <div className="flex items-center gap-1.5 mb-2">
-            <Brain size={12} className="text-conflicting" />
-            <span className="text-[10px] uppercase tracking-wider text-conflicting font-medium">AI Analysis</span>
+        <div className="bg-conflicting/5 border border-conflicting/20 rounded-xl p-4">
+          <div className="flex items-center gap-2 mb-2.5">
+            <div className="w-6 h-6 rounded-lg bg-conflicting/15 flex items-center justify-center">
+              <Brain size={12} className="text-conflicting" />
+            </div>
+            <span className="text-[10px] uppercase tracking-wider text-conflicting font-semibold">AI Analysis</span>
           </div>
-          <p className="text-[11px] text-text-secondary leading-relaxed mb-2">{analysis.analysis.summary}</p>
+          <p className="text-[12px] text-text-secondary leading-relaxed mb-3">{analysis.analysis.summary}</p>
           {analysis.analysis.sectors_positive?.length > 0 && (
-            <div className="flex items-center gap-1 flex-wrap mb-1">
-              <TrendingUp size={9} className="text-buy" />
+            <div className="flex items-center gap-1.5 flex-wrap mb-2">
+              <TrendingUp size={10} className="text-buy" />
               {analysis.analysis.sectors_positive.map((s) => (
-                <span key={s} className="text-[9px] bg-buy/10 text-buy px-1.5 py-0.5 rounded">{s}</span>
+                <span key={s} className="text-[9px] bg-buy/10 text-buy px-2 py-0.5 rounded-md font-medium">{s}</span>
               ))}
             </div>
           )}
           {analysis.analysis.sectors_negative?.length > 0 && (
-            <div className="flex items-center gap-1 flex-wrap mb-1">
-              <TrendingDown size={9} className="text-sell" />
+            <div className="flex items-center gap-1.5 flex-wrap mb-2">
+              <TrendingDown size={10} className="text-sell" />
               {analysis.analysis.sectors_negative.map((s) => (
-                <span key={s} className="text-[9px] bg-sell/10 text-sell px-1.5 py-0.5 rounded">{s}</span>
+                <span key={s} className="text-[9px] bg-sell/10 text-sell px-2 py-0.5 rounded-md font-medium">{s}</span>
               ))}
             </div>
           )}
           {analysis.analysis.trader_advice && (
-            <p className="text-[10px] text-watch mt-2">{analysis.analysis.trader_advice}</p>
+            <p className="text-[10px] text-watch mt-2 font-medium">{analysis.analysis.trader_advice}</p>
           )}
         </div>
       )}
 
       {/* Filters */}
-      <div className="flex gap-1 flex-wrap">
-        {SENTIMENT_FILTERS.map((f) => (
-          <button key={f.id} onClick={() => setSentimentFilter(f.id)}
-            className={`px-2 py-1 rounded text-[10px] font-medium ${
-              sentimentFilter === f.id ? 'bg-info/15 text-info' : 'bg-overlay text-text-muted'
-            }`}>{f.label}</button>
-        ))}
-        <span className="text-border-mid mx-1">|</span>
-        {SOURCE_FILTERS.map((f) => (
-          <button key={f.id} onClick={() => setSourceFilter(f.id)}
-            className={`px-2 py-1 rounded text-[10px] font-medium ${
-              sourceFilter === f.id ? 'bg-conflicting/15 text-conflicting' : 'bg-overlay text-text-muted'
-            }`}>{f.label}</button>
-        ))}
+      <div className="flex gap-1.5 flex-wrap">
+        <div className="flex gap-1 p-0.5 bg-overlay rounded-lg">
+          {SENTIMENT_FILTERS.map((f) => (
+            <button key={f.id} onClick={() => setSentimentFilter(f.id)}
+              className={`px-2.5 py-1.5 rounded-md text-[10px] font-semibold transition-all ${
+                sentimentFilter === f.id ? 'bg-surface text-info shadow-sm' : 'text-text-muted hover:text-text-secondary'
+              }`}>{f.label}</button>
+          ))}
+        </div>
+        <div className="flex gap-1 p-0.5 bg-overlay rounded-lg">
+          {SOURCE_FILTERS.map((f) => (
+            <button key={f.id} onClick={() => setSourceFilter(f.id)}
+              className={`px-2.5 py-1.5 rounded-md text-[10px] font-semibold transition-all ${
+                sourceFilter === f.id ? 'bg-surface text-conflicting shadow-sm' : 'text-text-muted hover:text-text-secondary'
+              }`}>{f.label}</button>
+          ))}
+        </div>
       </div>
 
       {/* News List */}

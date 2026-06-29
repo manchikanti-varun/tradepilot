@@ -72,22 +72,34 @@ export default function HistoryPage() {
 
       {/* Summary Bar */}
       {total > 0 && (
-        <div className="flex items-center gap-4 mb-3 py-2 px-3 bg-surface border border-border-dim rounded-lg text-[10px]">
-          <span className="text-text-muted">Trades: <span className="font-mono text-text-primary">{total}</span></span>
-          <span className="text-text-muted">Wins: <span className="font-mono text-buy">{wins}</span></span>
-          <span className="text-text-muted">Losses: <span className="font-mono text-sell">{losses}</span></span>
-          <span className="text-text-muted">WR: <span className="font-mono text-text-primary">{winRate}%</span></span>
+        <div className="grid grid-cols-4 gap-2 mb-3">
+          <div className="bg-surface border border-border-dim rounded-xl p-2.5 text-center">
+            <p className="text-[9px] text-text-muted uppercase">Trades</p>
+            <p className="text-sm font-mono font-bold text-text-primary">{total}</p>
+          </div>
+          <div className="bg-surface border border-border-dim rounded-xl p-2.5 text-center">
+            <p className="text-[9px] text-text-muted uppercase">Wins</p>
+            <p className="text-sm font-mono font-bold text-buy">{wins}</p>
+          </div>
+          <div className="bg-surface border border-border-dim rounded-xl p-2.5 text-center">
+            <p className="text-[9px] text-text-muted uppercase">Losses</p>
+            <p className="text-sm font-mono font-bold text-sell">{losses}</p>
+          </div>
+          <div className="bg-surface border border-border-dim rounded-xl p-2.5 text-center">
+            <p className="text-[9px] text-text-muted uppercase">Win Rate</p>
+            <p className="text-sm font-mono font-bold text-text-primary">{winRate}%</p>
+          </div>
         </div>
       )}
 
       {/* Filters */}
-      <div className="flex gap-1 mb-3">
+      <div className="flex gap-1 mb-3 p-0.5 bg-overlay rounded-lg w-fit">
         {['all', 'win', 'loss'].map((f) => (
           <button
             key={f}
             onClick={() => setFilter(f)}
-            className={`px-2.5 py-1 rounded text-[10px] font-medium ${
-              filter === f ? 'bg-info/15 text-info' : 'bg-overlay text-text-muted'
+            className={`px-3 py-1.5 rounded-md text-[10px] font-semibold transition-all ${
+              filter === f ? 'bg-surface text-info shadow-sm' : 'text-text-muted hover:text-text-secondary'
             }`}
           >
             {f === 'all' ? 'All' : f === 'win' ? 'Wins' : 'Losses'}
@@ -99,21 +111,21 @@ export default function HistoryPage() {
       {loading && !trades ? <SkeletonCard /> : filtered.length === 0 ? (
         <EmptyState icon={History} title="No trades yet" subtitle="Report your first trade to see history" />
       ) : (
-        <div className="space-y-1">
+        <div className="space-y-1.5">
           {filtered.map((trade) => {
             const pnl = trade.exit_price && trade.entry_price ? (trade.exit_price - trade.entry_price) * trade.qty : null;
             const isWin = pnl !== null && pnl > 0;
             return (
               <button key={trade.id} onClick={() => openTradeDetail(trade)}
-                className="w-full flex items-center justify-between bg-surface border border-border-dim rounded-lg px-3 py-2.5 text-left hover:border-border-mid transition-colors duration-100">
+                className="w-full flex items-center justify-between bg-surface border border-border-dim rounded-xl px-4 py-3 text-left hover:border-info/20 transition-all">
                 <div>
-                  <span className="text-xs font-mono font-medium text-text-primary">{trade.ticker}</span>
-                  <span className="text-[9px] text-text-muted ml-2">{trade.entry_time?.slice(0, 10)}</span>
-                  <span className="text-[9px] text-text-muted ml-2">Qty {trade.qty}</span>
+                  <span className="text-[12px] font-mono font-semibold text-text-primary">{trade.ticker}</span>
+                  <span className="text-[10px] text-text-muted ml-2">{trade.entry_time?.slice(0, 10)}</span>
+                  <span className="text-[10px] text-text-muted ml-2">Qty {trade.qty}</span>
                 </div>
                 <div className="flex items-center gap-2">
                   {pnl !== null ? (
-                    <MonoNumber value={formatCurrency(pnl)} color={isWin ? 'buy' : 'sell'} className="text-[11px] font-medium" />
+                    <MonoNumber value={formatCurrency(pnl)} color={isWin ? 'buy' : 'sell'} className="text-[11px] font-semibold" />
                   ) : (
                     <Badge variant="info">OPEN</Badge>
                   )}
@@ -148,9 +160,9 @@ function QuickLink({ label, sublabel, path }) {
   const navigate = useNavigate();
   return (
     <button onClick={() => navigate(path)}
-      className="bg-surface border border-border-dim rounded-lg p-3 text-left hover:border-border-mid transition-colors duration-100">
-      <p className="text-xs font-medium text-text-primary">{label}</p>
-      <p className="text-[9px] text-text-muted mt-0.5">{sublabel}</p>
+      className="bg-surface border border-border-dim rounded-xl p-3.5 text-left hover:border-info/20 transition-all">
+      <p className="text-xs font-semibold text-text-primary">{label}</p>
+      <p className="text-[10px] text-text-muted mt-0.5">{sublabel}</p>
     </button>
   );
 }
@@ -180,18 +192,18 @@ function TradeDetailModal({ trade, onClose }) {
   const pnl = trade.exit_price && trade.entry_price ? (trade.exit_price - trade.entry_price) * trade.qty : null;
 
   return (
-    <div className="fixed inset-0 bg-black/60 z-[1001] flex items-end justify-center" onClick={onClose}>
-      <div className="w-full max-w-lg bg-elevated border-t border-border-dim rounded-t-xl p-5 max-h-[80vh] overflow-y-auto"
+    <div className="fixed inset-0 bg-black/70 backdrop-blur-sm z-[1001] flex items-end justify-center" onClick={onClose}>
+      <div className="w-full max-w-lg bg-elevated border-t border-border-mid rounded-t-2xl p-5 max-h-[80vh] overflow-y-auto shadow-2xl animate-slide-in"
         onClick={(e) => e.stopPropagation()}>
 
         {/* Header */}
         <div className="flex items-center justify-between mb-4">
           <div>
-            <h3 className="text-base font-mono font-semibold text-text-primary">{trade.ticker}</h3>
+            <h3 className="text-lg font-mono font-bold text-text-primary">{trade.ticker}</h3>
             <p className="text-[10px] text-text-muted">{trade.entry_time?.slice(0, 10)}</p>
           </div>
-          <button onClick={onClose} className="p-2 rounded bg-overlay">
-            <X size={14} className="text-text-muted" />
+          <button onClick={onClose} className="p-2 rounded-lg bg-overlay hover:bg-elevated transition-colors">
+            <X size={15} className="text-text-muted" />
           </button>
         </div>
 
@@ -264,9 +276,9 @@ function TradeDetailModal({ trade, onClose }) {
 
 function DetailCell({ label, value, color = '' }) {
   return (
-    <div className="bg-surface border border-border-dim rounded-lg p-2.5">
-      <p className="text-[9px] text-text-muted">{label}</p>
-      <p className={`text-sm font-mono font-medium text-text-primary ${color}`}>{value}</p>
+    <div className="bg-overlay border border-border-dim rounded-xl p-3">
+      <p className="text-[9px] text-text-muted uppercase font-semibold">{label}</p>
+      <p className={`text-sm font-mono font-bold mt-0.5 ${color || 'text-text-primary'}`}>{value}</p>
     </div>
   );
 }

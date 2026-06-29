@@ -160,16 +160,16 @@ export default function AuthPage() {
   return (
     <div className="w-full max-w-[400px]">
       {/* Card */}
-      <div className="bg-surface border border-border-dim rounded-xl p-8">
+      <div className="bg-surface border border-border-dim rounded-2xl p-8">
         {/* Logo Mark */}
         <div className="flex justify-center mb-3">
-          <div className="w-10 h-10 rounded-md bg-buy flex items-center justify-center">
-            <span className="text-white text-base font-bold font-sans">TP</span>
+          <div className="w-11 h-11 rounded-xl bg-gradient-to-br from-buy to-info flex items-center justify-center">
+            <Zap size={20} className="text-white" />
           </div>
         </div>
 
         {/* Title */}
-        <h1 className="text-center text-[22px] font-semibold text-text-primary">
+        <h1 className="text-center text-[22px] font-bold text-text-primary">
           TradePilot AI
         </h1>
         <p className="text-center text-[13px] text-text-muted mt-1">
@@ -177,12 +177,12 @@ export default function AuthPage() {
         </p>
 
         {/* Tab Switcher */}
-        <div className="flex mt-7 border-b border-border-dim">
+        <div className="flex mt-7 gap-1 p-1 bg-overlay rounded-xl">
           <button
             onClick={() => switchTab('login')}
-            className={`flex-1 pb-2.5 text-sm font-medium text-center transition-colors duration-100 ${
+            className={`flex-1 py-2 text-sm font-semibold text-center rounded-lg transition-all ${
               tab === 'login'
-                ? 'text-text-primary border-b-2 border-buy'
+                ? 'bg-surface text-text-primary shadow-sm'
                 : 'text-text-muted'
             }`}
           >
@@ -190,9 +190,9 @@ export default function AuthPage() {
           </button>
           <button
             onClick={() => switchTab('signup')}
-            className={`flex-1 pb-2.5 text-sm font-medium text-center transition-colors duration-100 ${
+            className={`flex-1 py-2 text-sm font-semibold text-center rounded-lg transition-all ${
               tab === 'signup'
-                ? 'text-text-primary border-b-2 border-buy'
+                ? 'bg-surface text-text-primary shadow-sm'
                 : 'text-text-muted'
             }`}
           >
