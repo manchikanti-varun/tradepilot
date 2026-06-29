@@ -418,8 +418,11 @@ async def get_user_credentials(user_id: int) -> Optional[dict]:
         result["angel_totp_secret"] = decrypt_credential(data["angel_totp_secret"])
     if data["groq_api_key"]:
         result["groq_api_key"] = decrypt_credential(data["groq_api_key"])
-    if data.get("groq_api_key_2"):
-        result["groq_api_key_2"] = decrypt_credential(data["groq_api_key_2"])
+    try:
+        if data["groq_api_key_2"]:
+            result["groq_api_key_2"] = decrypt_credential(data["groq_api_key_2"])
+    except (KeyError, IndexError):
+        pass  # Column might not exist yet
 
     return result if result else None
 

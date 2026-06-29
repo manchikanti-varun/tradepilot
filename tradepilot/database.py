@@ -43,6 +43,14 @@ async def init_db():
     async with get_db() as db:
         await db.executescript(SCHEMA)
         await db.commit()
+
+        # Migrations: add new columns to existing tables
+        try:
+            await db.execute("ALTER TABLE user_credentials ADD COLUMN groq_api_key_2 TEXT")
+            await db.commit()
+        except Exception:
+            pass  # Column already exists
+
     logger.info("Database initialized at %s", DB_PATH)
 
 
