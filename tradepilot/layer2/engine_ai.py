@@ -450,15 +450,19 @@ async def analyze_with_groq(symbol: str, data: dict) -> Optional[dict]:
 
     try:
         async with aiohttp.ClientSession() as session:
-            async with session.post(url, json=payload, headers=headers, timeout=aiohttp.ClientTimeout(total=15)) as resp:
+            async with session.post(url, json=payload, headers=headers, timeout=aiohttp.ClientTimeout(total=25)) as resp:
                 if resp.status != 200:
-                    logger.warning("Groq API returned %d", resp.status)
+                    body = await resp.text()
+                    logger.warning("Groq API returned %d: %s", resp.status, body[:200])
                     return None
                 result = await resp.json()
 
         text = result.get("choices", [{}])[0].get("message", {}).get("content", "")
         return _parse_ai_response(text, "Groq")
 
+    except asyncio.TimeoutError:
+        logger.warning("Groq 70B timed out (25s)")
+        return None
     except Exception as e:
         logger.warning("Groq analysis failed: %s", str(e)[:100])
         return None
@@ -496,18 +500,13 @@ async def dual_ai_analysis(symbol: str, data: dict) -> dict:
     - confidence: HIGH / MEDIUM / LOW
     - combined_reasoning: merged explanation
     """
-    # Run both in parallel
-    gemini_result, groq_result = await asyncio.gather(
-        analyze_with_gemini(symbol, data),
-        analyze_with_groq(symbol, data),
-        return_exceptions=True,
-    )
+    # Run both in parallel — but stagger slightly to avoid Groq rate limit
+    gemini_result = await analyze_with_scout(symbol, data)
+    await asyncio.sleep(1)  # 1s gap to avoid concurrent rate limit on free tier
+    groq_result = await analyze_with_groq(symbol, data)
 
-    # Handle exceptions
-    if isinstance(gemini_result, Exception):
-        gemini_result = None
-    if isinstance(groq_result, Exception):
-        groq_result = None
+    # Handle None results (function returns None on failure)
+    # No need to check for exceptions since we're not using gather with return_exceptions
 
     # Determine final verdict
     gemini_action = gemini_result.get("action", "WAIT") if gemini_result else "UNAVAILABLE"
