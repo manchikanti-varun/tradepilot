@@ -71,13 +71,7 @@ async def check_entry_conditions(
             False, f"RSI {score.rsi:.1f} outside 35-72 range", symbol, ltp, score
         )
 
-    # VWAP proximity: within 2.0% (stocks naturally drift from VWAP as the day progresses)
-    if score.vwap > 0:
-        vwap_dist_pct = abs(ltp - score.vwap) / score.vwap * 100
-        if vwap_dist_pct > 2.0:
-            return EntryCheckResult(
-                False, f"LTP {vwap_dist_pct:.2f}% from VWAP (max 2.0%)", symbol, ltp, score
-            )
+    # VWAP check removed — was blocking all signals mid-day when stocks naturally drift from VWAP
 
     # Market depth check
     depth: DepthSnapshot = await market_data.get_market_depth(symbol)
@@ -88,10 +82,10 @@ async def check_entry_conditions(
             False, f"Bid pressure weak ({bid_qty} < {ask_qty}*0.85)", symbol, ltp, score
         )
 
-    # Volume check — at least 70% of average (still liquid enough)
-    if score.volume_ratio < 0.7:
+    # Volume check — at least 50% of average
+    if score.volume_ratio < 0.5:
         return EntryCheckResult(
-            False, f"Volume too thin (ratio {score.volume_ratio:.2f}, need 0.7+)", symbol, ltp, score
+            False, f"Volume too thin (ratio {score.volume_ratio:.2f}, need 0.5+)", symbol, ltp, score
         )
 
     # All passed

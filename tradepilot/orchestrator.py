@@ -320,12 +320,14 @@ async def _run_live_pipeline_inner():
     except Exception as e:
         logger.debug("Angel One position check unavailable: %s", str(e)[:60])
 
-    # Filter to allowed grades — full capital on best picks only
-    min_grade_set = {Grade.A_PLUS, Grade.A, Grade.B}
+    # Filter to allowed grades
+    min_grade_set = {Grade.A_PLUS, Grade.A, Grade.B, Grade.C}
     if state.event_risk.grade_floor == "A+":
         min_grade_set = {Grade.A_PLUS}
     elif state.event_risk.grade_floor == "A":
         min_grade_set = {Grade.A_PLUS, Grade.A}
+    elif state.event_risk.grade_floor == "B":
+        min_grade_set = {Grade.A_PLUS, Grade.A, Grade.B}
     top_scores = [s for s in scores if s.grade in min_grade_set]
 
     # Engine 22: Log rejections
