@@ -94,35 +94,6 @@ async def check_entry_conditions(
             False, f"Volume too thin (ratio {score.volume_ratio:.2f}, need 0.7+)", symbol, ltp, score
         )
 
-    # Short-term trend check — don't buy stocks actively falling from day high
-    # If price dropped > 0.8% from recent high (last 30min), it's in a sell-off
-    from datetime import timedelta
-    try:
-        recent_candles = await market_data.get_candles(
-            symbol, "5m", from_dt=now - timedelta(hours=1), to_dt=now,
-        )
-        if not recent_candles.empty and len(recent_candles) >= 3:
-            recent_high = float(recent_candles["high"].iloc[-6:].max())  # last 30 min high
-            if recent_high > 0 and ltp < recent_high * 0.992:  # dropped > 0.8% from recent high
-                drop_pct = (recent_high - ltp) / recent_high * 100
-                return EntryCheckResult(
-                    False,
-                    f"Price dropping — down {drop_pct:.1f}% from recent high ₹{recent_high:.2f}",
-                    symbol, ltp, score,
-                )
-            # Also check: last 3 candles all red = active selling
-            last3_closes = recent_candles["close"].iloc[-3:].tolist()
-            last3_opens = recent_candles["open"].iloc[-3:].tolist()
-            red_candles = sum(1 for c, o in zip(last3_closes, last3_opens) if c < o)
-            if red_candles == 3:
-                return EntryCheckResult(
-                    False,
-                    "3 consecutive red candles — active selling pressure",
-                    symbol, ltp, score,
-                )
-    except Exception:
-        pass  # If candle fetch fails, don't block entry
-
     # All passed
     return EntryCheckResult(
         True,
