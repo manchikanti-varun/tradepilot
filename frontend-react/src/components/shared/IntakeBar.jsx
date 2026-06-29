@@ -67,8 +67,13 @@ export default function IntakeBar() {
     if (!symbol.trim() || !price || !qty) return;
     setLoading(true);
     try {
-      const text = `${intent === 'BUY' ? 'Bought' : 'Sold'} ${symbol.toUpperCase()} at ${price}, qty ${qty}`;
-      const res = await positionApi.intake(text);
+      // Use structured quick trade endpoint (bypasses NLP parsing)
+      const res = await positionApi.quickTrade(
+        symbol.toUpperCase(),
+        parseFloat(price),
+        parseInt(qty),
+        intent
+      );
       if (res.status === 'confirm_entry' || res.status === 'confirm_exit') {
         useAppStore.getState().setActiveModal({ type: 'confirmTrade', data: res });
       } else if (res.status === 'clarification_needed') {

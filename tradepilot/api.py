@@ -1809,8 +1809,35 @@ async def delete_price_alert(alert_id: int):
 
 @app.post("/api/intake/quick")
 async def quick_trade_intake(symbol: str, price: float, qty: int, intent: str = "BUY"):
-    """Feature 4: Quick trade — one-tap from signal card."""
-    return await confirm_intake({"intent": intent, "ticker": symbol, "price": price, "qty": qty})
+    """Feature 4: Quick trade — structured data, no NLP parsing needed."""
+    intent = intent.upper()
+    if intent not in ("BUY", "SELL"):
+        return {"status": "error", "message": "Intent must be BUY or SELL"}
+    if price <= 0 or price > 50000:
+        return {"status": "error", "message": f"Price ₹{price} is invalid"}
+    if qty <= 0 or qty > 5000:
+        return {"status": "error", "message": f"Qty {qty} is invalid"}
+
+    state = get_state()
+    active = await state.tracker.get_active_trade()
+
+    if intent == "BUY":
+        if active is not None:
+            return {"status": "rejected", "message": f"Already have open {active.ticker} — close it first",
+                    "parsed": {"intent": intent, "ticker": symbol, "price": price, "qty": qty}}
+        return {"status": "confirm_entry",
+                "parsed": {"intent": intent, "ticker": symbol, "price": price, "qty": qty},
+                "message": f"Got it — BUY {symbol}, ₹{price:.2f}, qty {qty}, just now. Confirm?"}
+    else:
+        if active is None:
+            return {"status": "rejected", "message": "No active position to close",
+                    "parsed": {"intent": intent, "ticker": symbol, "price": price, "qty": qty}}
+        if active.ticker != symbol:
+            return {"status": "rejected", "message": f"Active position is {active.ticker}, not {symbol}",
+                    "parsed": {"intent": intent, "ticker": symbol, "price": price, "qty": qty}}
+        return {"status": "confirm_exit",
+                "parsed": {"intent": intent, "ticker": symbol, "price": price, "qty": qty},
+                "message": f"Got it — SELL {symbol}, ₹{price:.2f}, qty {qty}, just now. Confirm?"}
 
 
 @app.get("/api/position/exit-calc")
