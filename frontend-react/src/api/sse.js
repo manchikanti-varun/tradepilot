@@ -6,20 +6,24 @@ import { signalsApi } from './signals';
 import { positionApi } from './position';
 
 const BASE = import.meta.env.VITE_API_URL || '';
-const RETRY_DELAYS = [3000, 10000, 30000];
 
 let eventSource = null;
 let retryCount = 0;
 let fallbackIntervals = [];
 let sseAvailable = false;
 
+const RETRY_DELAYS = [3000, 10000, 30000];
+
 export function connectSSE() {
   if (eventSource) {
     eventSource.close();
   }
 
+  // Immediately fetch data on connect — don't wait for SSE
+  refreshAllStores();
+
   try {
-    const token = localStorage.getItem('tp_access_token');
+    const token = localStorage.getItem('tp_access');
     const url = `${BASE}/api/stream${token ? `?token=${token}` : ''}`;
     eventSource = new EventSource(url);
 
@@ -94,7 +98,8 @@ function handleDisconnect() {
     retryCount++;
     setTimeout(() => connectSSE(), delay);
   } else {
-    useAppStore.getState().setConnectionStatus('disconnected');
+    // SSE endpoint doesn't exist — switch to polling permanently
+    useAppStore.getState().setConnectionStatus('polling');
     startFallbackPolling();
   }
 }
@@ -102,7 +107,7 @@ function handleDisconnect() {
 function startFallbackPolling() {
   stopFallbackPolling();
 
-  // Critical data: 5s polling
+  // Critical data: signals + positions every 5s
   const criticalInterval = setInterval(async () => {
     try {
       const [pos, sig] = await Promise.all([
@@ -117,11 +122,17 @@ function startFallbackPolling() {
     }
   }, 5000);
 
-  // Market data: 10s polling
+  // Market data + countdown: 10s polling
   const marketInterval = setInterval(async () => {
     try {
-      const state = await marketApi.state();
+      const [state, countdown] = await Promise.all([
+        marketApi.state(),
+        marketApi.countdown(),
+      ]);
       useMarketStore.getState().updateFromState(state);
+      if (countdown?.status) {
+        useMarketStore.getState().setMarketStatus(countdown.status);
+      }
     } catch { /* will retry next cycle */ }
   }, 10000);
 
@@ -142,7 +153,6 @@ async function refreshAllStores() {
       marketApi.countdown(),
     ]);
     useMarketStore.getState().updateFromState(state);
-    // Ensure marketStatus is updated immediately so SignalFeed renders the correct branch
     if (countdown?.status) {
       useMarketStore.getState().setMarketStatus(countdown.status);
     }

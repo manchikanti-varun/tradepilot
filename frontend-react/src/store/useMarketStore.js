@@ -11,7 +11,7 @@ export const useMarketStore = create((set, get) => ({
   lastScanTime: null,
   scanCountdown: 90,
   isMarketOpen: false,
-  marketStatus: 'CLOSED',
+  marketStatus: null,
   consecutiveLosses: 0,
   todayPnL: 0,
   winRate: 0,
