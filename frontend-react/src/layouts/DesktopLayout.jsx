@@ -1,5 +1,5 @@
 import { useNavigate, useLocation } from 'react-router-dom';
-import { LayoutDashboard, Radio, BarChart3, History, Newspaper, Settings, Scale, Filter } from 'lucide-react';
+import { LayoutDashboard, Radio, BarChart3, History, Newspaper, Settings, Scale, Filter, Activity } from 'lucide-react';
 import LeftPanel from '../panels/LeftPanel';
 import CenterPanel from '../panels/CenterPanel';
 import RightPanel from '../panels/RightPanel';
@@ -24,48 +24,55 @@ export default function DesktopLayout() {
 
   return (
     <div className="h-screen flex flex-col overflow-hidden">
-      {connectionStatus === 'disconnected' || connectionStatus === 'reconnecting' ? (
+      {(connectionStatus === 'disconnected' || connectionStatus === 'reconnecting') && (
         <DisconnectedBanner />
-      ) : null}
+      )}
 
       {/* Top Nav Bar */}
-      <header className="h-10 flex items-center justify-between px-4 border-b border-border-dim bg-surface shrink-0">
-        <div className="flex items-center gap-1">
-          <div className="w-6 h-6 rounded bg-buy flex items-center justify-center mr-2">
-            <span className="text-white text-[10px] font-bold">TP</span>
-          </div>
+      <header className="h-12 flex items-center justify-between px-5 border-b border-border-dim bg-surface/80 backdrop-blur-sm shrink-0">
+        <div className="flex items-center gap-1.5">
+          {/* Logo */}
+          <button onClick={() => navigate('/dashboard')} className="flex items-center gap-2 mr-4 hover:opacity-80 transition-opacity">
+            <div className="w-7 h-7 rounded-lg bg-gradient-to-br from-buy to-info flex items-center justify-center">
+              <Activity size={14} className="text-white" />
+            </div>
+            <span className="text-sm font-bold gradient-text">TradePilot</span>
+          </button>
+
+          {/* Nav Items */}
           {NAV_ITEMS.map(({ path, label, icon: Icon }) => {
             const active = location.pathname === path;
             return (
               <button
                 key={path}
                 onClick={() => navigate(path)}
-                className={`flex items-center gap-1.5 px-2.5 py-1.5 rounded text-[11px] font-medium transition-colors duration-100 ${
-                  active ? 'bg-info/15 text-info' : 'text-text-muted hover:text-text-secondary'
+                className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium transition-all ${
+                  active
+                    ? 'bg-info/12 text-info shadow-sm'
+                    : 'text-text-muted hover:text-text-secondary hover:bg-overlay'
                 }`}
               >
-                <Icon size={13} strokeWidth={active ? 2 : 1.5} />
+                <Icon size={14} strokeWidth={active ? 2 : 1.5} />
                 {label}
               </button>
             );
           })}
         </div>
+
         <StatusIndicator />
       </header>
 
+      {/* 3-Panel Layout */}
       <div className="flex flex-1 min-h-0">
-        {/* Left Panel - Fixed 260px */}
-        <aside className="w-[260px] flex-shrink-0 border-r border-border-dim overflow-y-auto bg-surface">
+        <aside className="w-[270px] flex-shrink-0 border-r border-border-dim overflow-y-auto bg-surface">
           <LeftPanel />
         </aside>
 
-        {/* Center Panel - Flexible */}
         <main className="flex-1 min-w-0 overflow-y-auto bg-base">
           <CenterPanel />
         </main>
 
-        {/* Right Panel - Fixed 300px */}
-        <aside className="w-[300px] flex-shrink-0 border-l border-border-dim overflow-y-auto bg-surface">
+        <aside className="w-[310px] flex-shrink-0 border-l border-border-dim overflow-y-auto bg-surface">
           <RightPanel />
         </aside>
       </div>
@@ -77,28 +84,18 @@ function StatusIndicator() {
   const connectionStatus = useAppStore((s) => s.connectionStatus);
   const lastUpdated = useAppStore((s) => s.lastUpdated);
 
-  const statusDot = connectionStatus === 'connected'
-    ? 'bg-buy'
-    : connectionStatus === 'polling'
-    ? 'bg-watch'
-    : connectionStatus === 'reconnecting'
-    ? 'bg-watch animate-pulse-slow'
-    : 'bg-sell';
-
-  const statusLabel = connectionStatus === 'connected'
-    ? 'LIVE'
-    : connectionStatus === 'polling'
-    ? 'DELAYED 5s'
-    : connectionStatus === 'reconnecting'
-    ? 'RECONNECTING'
+  const isLive = connectionStatus === 'connected' || connectionStatus === 'polling';
+  const statusLabel = connectionStatus === 'connected' ? 'LIVE'
+    : connectionStatus === 'polling' ? 'DELAYED 5S'
+    : connectionStatus === 'reconnecting' ? 'RECONNECTING'
     : 'OFFLINE';
 
   return (
-    <div className="flex items-center gap-2">
-      <div className={`w-1.5 h-1.5 rounded-full ${statusDot}`} />
-      <span className="text-[10px] text-text-muted uppercase tracking-wider">{statusLabel}</span>
+    <div className="flex items-center gap-2 px-3 py-1.5 rounded-lg bg-overlay">
+      <div className={`w-2 h-2 rounded-full ${isLive ? 'bg-buy pulse-dot' : 'bg-sell'}`} />
+      <span className="text-[10px] text-text-muted font-semibold tracking-wide">{statusLabel}</span>
       {lastUpdated && (
-        <span className="text-[10px] text-text-muted font-mono">
+        <span className="text-[10px] text-text-muted font-mono ml-1">
           {new Date(lastUpdated).toLocaleTimeString('en-IN', { hour: 'numeric', minute: '2-digit', second: '2-digit', hour12: true })}
         </span>
       )}

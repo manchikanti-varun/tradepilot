@@ -1,5 +1,5 @@
+import { TrendingUp, TrendingDown } from 'lucide-react';
 import { usePnL } from '../../hooks/usePnL';
-import MonoNumber from '../shared/MonoNumber';
 import { formatCurrency } from '../../api/client';
 
 export default function PnLDisplay({ label = 'Unrealized P&L' }) {
@@ -7,13 +7,19 @@ export default function PnLDisplay({ label = 'Unrealized P&L' }) {
 
   if (pnl === null) return null;
 
-  const color = pnl >= 0 ? 'buy' : 'sell';
-  const sign = pnl >= 0 ? '+' : '';
+  const isProfit = pnl >= 0;
+  const sign = isProfit ? '+' : '';
+  const Icon = isProfit ? TrendingUp : TrendingDown;
 
   return (
-    <div className={`flex items-center justify-between py-1.5 ${flashClass}`}>
-      <span className="text-xs text-text-secondary">{label}</span>
-      <MonoNumber value={`${sign}${formatCurrency(pnl)}`} color={color} className="text-sm font-semibold" />
+    <div className={`flex items-center justify-between py-2 ${flashClass}`}>
+      <span className="text-[11px] text-text-muted font-medium">{label}</span>
+      <div className="flex items-center gap-1.5">
+        <Icon size={13} className={isProfit ? 'text-buy' : 'text-sell'} />
+        <span className={`text-base font-mono font-bold ${isProfit ? 'text-buy' : 'text-sell'}`}>
+          {sign}{formatCurrency(pnl)}
+        </span>
+      </div>
     </div>
   );
 }
