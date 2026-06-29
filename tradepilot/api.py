@@ -1553,15 +1553,30 @@ async def get_stock_trading_plan(symbol: str, user: dict = Depends(get_current_u
     capital = growth.current_capital
     leverage = 5.0
 
-    # Use AI's entry/stop/target — not our calculations
+    # Use AI's entry/stop/target — but validate they make sense
     entry = ai_result.get("entry_price") or ltp
-    stop = ai_result.get("stop_loss") or round(ltp - daily_atr * 0.3, 2)
-    t1 = ai_result.get("target_1") or round(ltp + daily_atr * 0.5, 2)
-    t2 = ai_result.get("target_2") or round(ltp + daily_atr * 0.8, 2)
-    rr = ai_result.get("risk_reward") or 0
+    stop = ai_result.get("stop_loss") or round(ltp - daily_atr * 0.4, 2)
+    t1 = ai_result.get("target_1") or round(ltp + daily_atr * 0.6, 2)
+    t2 = ai_result.get("target_2") or round(ltp + daily_atr * 1.0, 2)
 
-    # Position sizing from AI's levels
+    # VALIDATION: Targets must be far enough to cover charges
+    # Minimum target distance = 0.5% of entry price or 0.4*ATR, whichever is larger
+    min_target_distance = max(entry * 0.005, daily_atr * 0.4) if daily_atr > 0 else entry * 0.005
+    if t1 - entry < min_target_distance:
+        t1 = round(entry + daily_atr * 0.6, 2) if daily_atr > 0 else round(entry * 1.005, 2)
+    if t2 - entry < min_target_distance * 1.5:
+        t2 = round(entry + daily_atr * 1.0, 2) if daily_atr > 0 else round(entry * 1.008, 2)
+
+    # Stop must be below entry
+    if stop >= entry:
+        stop = round(entry - daily_atr * 0.4, 2) if daily_atr > 0 else round(entry * 0.995, 2)
+
+    # Calculate REAL risk:reward from T1 (not T2)
     risk_per_share = max(entry - stop, 0.5)
+    reward_per_share = t1 - entry
+    rr = round(reward_per_share / risk_per_share, 1) if risk_per_share > 0 else 0
+
+    # Position sizing from levels
     max_qty = int((capital * leverage) // ltp)
     max_loss = capital * 0.02
     qty = min(max_qty, int(max_loss / risk_per_share) if risk_per_share > 0 else max_qty)
@@ -1570,6 +1585,9 @@ async def get_stock_trading_plan(symbol: str, user: dict = Depends(get_current_u
     from tradepilot.layer2.engine8_charges import calculate_angel_charges
     charges, breakdown = calculate_angel_charges(qty, entry, t1)
     net_profit = qty * (t1 - entry) - charges
+
+    # If trade doesn't make money after charges at T1, it's a bad trade
+    trade_viable = net_profit > 0 and rr >= 1.0
 
     return {
         "symbol": symbol,
@@ -1600,6 +1618,8 @@ async def get_stock_trading_plan(symbol: str, user: dict = Depends(get_current_u
             {"level": 2, "price": t2, "label": "Target 2"},
         ],
         "risk_reward": rr,
+        "trade_viable": trade_viable,
+        "viability_note": None if trade_viable else "Target too close — charges eat the profit. Wait for a better entry.",
         "suggested_qty": qty,
         "capital_required": round(qty * entry / leverage, 2),
         "estimated_charges": round(charges, 2),
