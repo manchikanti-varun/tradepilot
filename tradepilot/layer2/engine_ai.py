@@ -533,20 +533,23 @@ async def dual_ai_analysis(symbol: str, data: dict) -> dict:
     elif gemini_action in ("WAIT", "SELL") and groq_action in ("WAIT", "SELL"):
         verdict = "CONFIRMED_WAIT"
         confidence = "HIGH"
-    # One says BUY, other unavailable — can't confirm with single opinion
-    elif gemini_action == "BUY" and groq_action == "UNAVAILABLE":
-        verdict = "UNCONFIRMED_BUY"
-        confidence = "LOW"
-    elif groq_action == "BUY" and gemini_action == "UNAVAILABLE":
-        verdict = "UNCONFIRMED_BUY"
-        confidence = "LOW"
-    # One says BUY, other says WAIT
+    # One says BUY, other says WAIT — they disagree
     elif (gemini_action == "BUY" and groq_action == "WAIT") or (groq_action == "BUY" and gemini_action == "WAIT"):
         verdict = "CONFLICTING"
         confidence = "LOW"
-    # One says BUY, other says SELL
+    # One says BUY, other says SELL — strong disagreement
     elif (gemini_action == "BUY" and groq_action == "SELL") or (groq_action == "BUY" and gemini_action == "SELL"):
         verdict = "CONFLICTING"
+        confidence = "LOW"
+    # ANY case where one model is UNAVAILABLE — single opinion = LOW confidence
+    elif "UNAVAILABLE" in (gemini_action, groq_action):
+        available_action = gemini_action if groq_action == "UNAVAILABLE" else groq_action
+        if available_action == "BUY":
+            verdict = "UNCONFIRMED_BUY"
+        elif available_action in ("WAIT", "SELL"):
+            verdict = "UNCONFIRMED_WAIT"
+        else:
+            verdict = "NO_SIGNAL"
         confidence = "LOW"
     else:
         verdict = "NO_SIGNAL"
