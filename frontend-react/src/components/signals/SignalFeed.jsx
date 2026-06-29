@@ -123,9 +123,11 @@ export default function SignalFeed() {
             <div className="bg-overlay border border-border-dim rounded-xl p-5 text-center">
               <Calendar size={24} className="text-text-muted mx-auto mb-2" />
               <p className="text-sm font-medium text-text-secondary">
-                {isWeekend ? 'Weekend — Market Closed' : 'Market Holiday'}
+                {isWeekend ? 'Weekend — Market Closed' : isPostMarket ? 'Market Closed for Today' : 'Market Closed'}
               </p>
-              <p className="text-[11px] text-text-muted mt-1">No signal history from last session.</p>
+              <p className="text-[11px] text-text-muted mt-1">
+                {isPostMarket ? 'Signals resume tomorrow at 9:20 AM' : 'No signal history from last session.'}
+              </p>
             </div>
             <div className="bg-surface border border-border-dim rounded-xl p-4">
               <p className="text-[10px] uppercase tracking-wider text-text-muted font-semibold mb-3">While you wait</p>
