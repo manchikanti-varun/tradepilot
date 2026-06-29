@@ -14,9 +14,11 @@ const TREND_CONFIG = {
 
 const VERDICT_CONFIG = {
   CONFIRMED_BUY: { color: 'text-buy', bg: 'bg-buy/10 border-buy/30', label: 'Both AIs say BUY', icon: CheckCircle2 },
-  LIKELY_BUY: { color: 'text-info', bg: 'bg-info/10 border-info/30', label: 'AI suggests BUY', icon: TrendingUp },
-  CONFIRMED_WAIT: { color: 'text-text-secondary', bg: 'bg-overlay border-border-mid', label: 'AIs say WAIT', icon: Minus },
-  CONFLICTING: { color: 'text-watch', bg: 'bg-watch/10 border-watch/30', label: 'AIs disagree — skip', icon: AlertTriangle },
+  UNCONFIRMED_BUY: { color: 'text-watch', bg: 'bg-watch/10 border-watch/30', label: 'Unconfirmed — only 1 AI responded', icon: AlertTriangle },
+  LIKELY_BUY: { color: 'text-watch', bg: 'bg-watch/10 border-watch/30', label: 'Unconfirmed — only 1 AI responded', icon: AlertTriangle },
+  CONFIRMED_WAIT: { color: 'text-text-secondary', bg: 'bg-overlay border-border-mid', label: 'Both AIs say WAIT', icon: Minus },
+  UNCONFIRMED_WAIT: { color: 'text-text-muted', bg: 'bg-overlay border-border-mid', label: 'Unconfirmed WAIT — only 1 AI responded', icon: Minus },
+  CONFLICTING: { color: 'text-sell', bg: 'bg-sell/10 border-sell/30', label: 'AIs disagree — skip', icon: AlertTriangle },
   NO_SIGNAL: { color: 'text-text-muted', bg: 'bg-overlay border-border-mid', label: 'No clear signal', icon: Minus },
 }
 
