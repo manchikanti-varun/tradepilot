@@ -533,13 +533,13 @@ async def dual_ai_analysis(symbol: str, data: dict) -> dict:
     elif gemini_action in ("WAIT", "SELL") and groq_action in ("WAIT", "SELL"):
         verdict = "CONFIRMED_WAIT"
         confidence = "HIGH"
-    # One says BUY, other unavailable
+    # One says BUY, other unavailable — can't confirm with single opinion
     elif gemini_action == "BUY" and groq_action == "UNAVAILABLE":
-        verdict = "LIKELY_BUY"
-        confidence = "MEDIUM"
+        verdict = "UNCONFIRMED_BUY"
+        confidence = "LOW"
     elif groq_action == "BUY" and gemini_action == "UNAVAILABLE":
-        verdict = "LIKELY_BUY"
-        confidence = "MEDIUM"
+        verdict = "UNCONFIRMED_BUY"
+        confidence = "LOW"
     # One says BUY, other says WAIT
     elif (gemini_action == "BUY" and groq_action == "WAIT") or (groq_action == "BUY" and gemini_action == "WAIT"):
         verdict = "CONFLICTING"
