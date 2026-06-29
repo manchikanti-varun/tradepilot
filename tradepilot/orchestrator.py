@@ -682,12 +682,17 @@ async def confirm_intake(parsed_data: dict) -> dict:
             trade_id=active.id, exit_price=price, exit_time=now, exit_reason="manual_exit",
         )
 
-        # Update capital
+        # Update capital — T+1 settlement: profit credits next morning, not immediately
+        # Store today's P&L in daily_state but DON'T add to capital until next day
+        # Capital for position sizing today stays unchanged (what you started the day with)
+        # Only losses are deducted immediately (margin requirement)
         growth = await get_growth_state()
-        new_capital = growth.current_capital + (trade.pnl.net_pnl if trade.pnl else 0)
-        await update_capital(new_capital)
+        if trade.pnl and trade.pnl.net_pnl < 0:
+            # Losses reduce capital immediately (margin deducted by broker)
+            new_capital = growth.current_capital + trade.pnl.net_pnl
+            await update_capital(new_capital)
 
-        # Update risk state
+        # Update risk state (tracks daily P&L for hard stop logic)
         if trade.pnl:
             await record_trade_result(trade.pnl.net_pnl)
 

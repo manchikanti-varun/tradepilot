@@ -268,20 +268,32 @@ async def _nightly_backup():
 
 
 async def _reset_daily_state():
-    """FIX 4.1: Carry consecutive losses across day boundaries, then prepare tomorrow's state."""
+    """FIX 4.1: Carry consecutive losses across day boundaries, then prepare tomorrow's state.
+    Also: T+1 settlement — credit today's profits to capital (they settle next morning)."""
     try:
         from tradepilot.database import get_db
+        from tradepilot.layer2.engine21_growth import get_growth_state, update_capital
         today = date.today().isoformat()
         tomorrow = (date.today() + timedelta(days=1)).isoformat()
         async with get_db() as db:
-            # FIX 4.1: Read today's ending consecutive_losses to carry forward
+            # FIX 4.1: Read today's ending state
             row = await db.execute(
-                "SELECT consecutive_losses FROM daily_state WHERE date = ?", (today,)
+                "SELECT consecutive_losses, daily_pnl FROM daily_state WHERE date = ?", (today,)
             )
             today_state = await row.fetchone()
             carry_forward = 0
-            if today_state and today_state["consecutive_losses"] and today_state["consecutive_losses"] > 0:
-                carry_forward = today_state["consecutive_losses"]
+            today_pnl = 0.0
+            if today_state:
+                carry_forward = today_state["consecutive_losses"] or 0
+                today_pnl = today_state["daily_pnl"] or 0.0
+
+            # T+1 Settlement: Credit today's PROFITS to capital (losses already deducted intraday)
+            if today_pnl > 0:
+                growth = await get_growth_state()
+                new_capital = growth.current_capital + today_pnl
+                await update_capital(new_capital)
+                logger.info("T+1 settlement: credited ₹%.2f profit to capital (new: ₹%.2f)",
+                           today_pnl, new_capital)
 
             # Insert tomorrow's row with carried-forward consecutive losses
             await db.execute(
