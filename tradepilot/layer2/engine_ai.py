@@ -24,8 +24,44 @@ import aiohttp
 
 logger = logging.getLogger(__name__)
 
+# Multi-key pool: 3 env keys + 2 user keys (set at runtime from DB/settings)
 GROQ_API_KEY = os.environ.get("GROQ_API_KEY", "")
-GROQ_API_KEY_2 = os.environ.get("GROQ_API_KEY_2", "")  # Second key for the 70B model
+GROQ_API_KEY_2 = os.environ.get("GROQ_API_KEY_2", "")
+GROQ_API_KEY_3 = os.environ.get("GROQ_API_KEY_3", "")
+
+# User-provided keys (override env if set via Settings)
+USER_GROQ_KEY_1 = ""
+USER_GROQ_KEY_2 = ""
+
+
+def _get_key_pool() -> list[str]:
+    """Get all available Groq keys, prioritizing user keys over env keys."""
+    keys = []
+    # User keys first (from Settings/signup)
+    if USER_GROQ_KEY_1:
+        keys.append(USER_GROQ_KEY_1)
+    if USER_GROQ_KEY_2:
+        keys.append(USER_GROQ_KEY_2)
+    # Env keys as fallback
+    if GROQ_API_KEY and GROQ_API_KEY not in keys:
+        keys.append(GROQ_API_KEY)
+    if GROQ_API_KEY_2 and GROQ_API_KEY_2 not in keys:
+        keys.append(GROQ_API_KEY_2)
+    if GROQ_API_KEY_3 and GROQ_API_KEY_3 not in keys:
+        keys.append(GROQ_API_KEY_3)
+    return keys
+
+
+def _get_key_for_model(model_index: int) -> str:
+    """Get the best key for a model. model_index 0 = Scout, 1 = Groq 70B.
+    Uses different keys for each model to avoid rate limits."""
+    pool = _get_key_pool()
+    if not pool:
+        return ""
+    if len(pool) == 1:
+        return pool[0]
+    # Use different keys for different models
+    return pool[model_index % len(pool)]
 
 
 # ═══════════════════════════════════════════════════════════════
@@ -38,7 +74,8 @@ async def ai_quick_json(prompt: str, max_tokens: int = 500, temperature: float =
     Use this when you need a structured response (scores, classifications, etc.)
     Falls back gracefully — caller must handle None.
     """
-    if not GROQ_API_KEY:
+    api_key = _get_key_for_model(0)
+    if not api_key:
         return None
 
     # FIX 8.1: Log prompt version for drift detection
@@ -52,7 +89,7 @@ async def ai_quick_json(prompt: str, max_tokens: int = 500, temperature: float =
         "temperature": temperature,
         "max_tokens": max_tokens,
     }
-    headers = {"Authorization": f"Bearer {GROQ_API_KEY}", "Content-Type": "application/json"}
+    headers = {"Authorization": f"Bearer {api_key}", "Content-Type": "application/json"}
 
     try:
         async with aiohttp.ClientSession() as session:
@@ -73,7 +110,8 @@ async def ai_generate_prose(prompt: str, max_tokens: int = 400, temperature: flo
     
     Use for briefs, coaching messages, explanations.
     """
-    if not GROQ_API_KEY:
+    api_key = _get_key_for_model(0)
+    if not api_key:
         return None
 
     url = "https://api.groq.com/openai/v1/chat/completions"
@@ -83,7 +121,7 @@ async def ai_generate_prose(prompt: str, max_tokens: int = 400, temperature: flo
         "temperature": temperature,
         "max_tokens": max_tokens,
     }
-    headers = {"Authorization": f"Bearer {GROQ_API_KEY}", "Content-Type": "application/json"}
+    headers = {"Authorization": f"Bearer {api_key}", "Content-Type": "application/json"}
 
     try:
         async with aiohttp.ClientSession() as session:
@@ -384,8 +422,9 @@ Respond ONLY in this JSON format:
 # Previously misnamed "analyze_with_gemini" — renamed for clarity.
 
 async def analyze_with_scout(symbol: str, data: dict) -> Optional[dict]:
-    """Get analysis from Llama 4 Scout via Groq (second model for agreement check)."""
-    if not GROQ_API_KEY:
+    """Get analysis from Llama 4 Scout via Groq (model index 0)."""
+    api_key = _get_key_for_model(0)
+    if not api_key:
         return None
 
     prompt = _build_prompt(symbol, data)
@@ -399,7 +438,7 @@ async def analyze_with_scout(symbol: str, data: dict) -> Optional[dict]:
     }
 
     headers = {
-        "Authorization": f"Bearer {GROQ_API_KEY}",
+        "Authorization": f"Bearer {api_key}",
         "Content-Type": "application/json",
     }
 
@@ -430,9 +469,8 @@ analyze_with_gemini = analyze_with_scout
 
 
 async def analyze_with_groq(symbol: str, data: dict) -> Optional[dict]:
-    """Get analysis from Groq AI (Llama 3.3 70B). Uses GROQ_API_KEY_2 if available."""
-    # Use second key if available, otherwise fall back to primary
-    api_key = GROQ_API_KEY_2 or GROQ_API_KEY
+    """Get analysis from Groq AI (Llama 3.3 70B, model index 1)."""
+    api_key = _get_key_for_model(1)
     if not api_key:
         return None
 
@@ -503,21 +541,14 @@ async def dual_ai_analysis(symbol: str, data: dict) -> dict:
     - confidence: HIGH / MEDIUM / LOW
     - combined_reasoning: merged explanation
     """
-    # Run both models — parallel if using separate keys, sequential if same key
-    if GROQ_API_KEY_2 and GROQ_API_KEY_2 != GROQ_API_KEY:
-        # Separate keys = safe to run in parallel (no rate limit collision)
-        results = await asyncio.gather(
-            analyze_with_scout(symbol, data),
-            analyze_with_groq(symbol, data),
-            return_exceptions=True,
-        )
-        gemini_result = results[0] if not isinstance(results[0], Exception) else None
-        groq_result = results[1] if not isinstance(results[1], Exception) else None
-    else:
-        # Same key = stagger to avoid rate limit
-        gemini_result = await analyze_with_scout(symbol, data)
-        await asyncio.sleep(1)
-        groq_result = await analyze_with_groq(symbol, data)
+    # Run both models — always parallel since we use different keys from the pool
+    results = await asyncio.gather(
+        analyze_with_scout(symbol, data),
+        analyze_with_groq(symbol, data),
+        return_exceptions=True,
+    )
+    gemini_result = results[0] if not isinstance(results[0], Exception) else None
+    groq_result = results[1] if not isinstance(results[1], Exception) else None
 
     # Handle None results (function returns None on failure)
     # No need to check for exceptions since we're not using gather with return_exceptions

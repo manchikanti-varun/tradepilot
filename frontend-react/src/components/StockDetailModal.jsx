@@ -164,16 +164,16 @@ export default function StockDetailModal({ symbol, onClose }) {
                 <Target size={13} className="text-info" /> Trading Plan
               </h3>
               <div className="space-y-2.5">
-                <PlanRow label="Entry" value={`₹${plan.entry_price}`} color="text-info" />
-                <PlanRow label="Stop Loss" value={`₹${plan.stop_loss}`} color="text-sell"
-                  sub={`Risk ₹${plan.risk_per_share}/share`} />
+                <PlanRow label="Entry" value={`₹${Number(plan.entry_price).toFixed(2)}`} color="text-info" />
+                <PlanRow label="Stop Loss" value={`₹${Number(plan.stop_loss).toFixed(2)}`} color="text-sell"
+                  sub={`Risk ₹${Number(plan.risk_per_share).toFixed(2)}/share`} />
                 {plan.targets?.map(t => (
-                  <PlanRow key={t.level} label={t.label} value={`₹${t.price}`} color="text-buy" />
+                  <PlanRow key={t.level} label={t.label} value={`₹${Number(t.price).toFixed(2)}`} color="text-buy" />
                 ))}
                 <div className="flex items-center justify-between pt-2 border-t border-border-dim">
                   <span className="text-[10px] text-text-secondary">Risk : Reward</span>
                   <span className={`text-sm font-bold ${plan.risk_reward >= 1.5 ? 'text-buy' : plan.risk_reward >= 1 ? 'text-info' : 'text-sell'}`}>
-                    1 : {plan.risk_reward}
+                    1 : {Number(plan.risk_reward).toFixed(1)}
                   </span>
                 </div>
               </div>

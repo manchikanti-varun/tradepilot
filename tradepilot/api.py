@@ -51,23 +51,43 @@ async def lifespan(app: FastAPI):
 async def _load_groq_keys_from_db():
     """Load Groq API keys from first user's credentials into engine_ai module."""
     try:
-        from tradepilot.auth import get_user_credentials, decrypt_credential
         import tradepilot.layer2.engine_ai as engine_ai
+        from tradepilot.auth import decrypt_credential
         async with get_db() as db:
-            row = await db.execute("SELECT user_id FROM users LIMIT 1")
-            user = await row.fetchone()
-            if user:
-                creds = await get_user_credentials(user["user_id"])
-                if creds and creds.get("groq_api_key"):
-                    engine_ai.GROQ_API_KEY = creds["groq_api_key"]
-                    os.environ["GROQ_API_KEY"] = creds["groq_api_key"]
-                    logger.info("Loaded Groq key 1 from DB")
-                if creds and creds.get("groq_api_key_2"):
-                    engine_ai.GROQ_API_KEY_2 = creds["groq_api_key_2"]
-                    os.environ["GROQ_API_KEY_2"] = creds["groq_api_key_2"]
-                    logger.info("Loaded Groq key 2 from DB")
+            # First try to get both columns
+            try:
+                row = await db.execute(
+                    "SELECT groq_api_key, groq_api_key_2 FROM user_credentials LIMIT 1"
+                )
+            except Exception:
+                # Column groq_api_key_2 might not exist
+                row = await db.execute(
+                    "SELECT groq_api_key FROM user_credentials LIMIT 1"
+                )
+            data = await row.fetchone()
+            if data:
+                if data["groq_api_key"]:
+                    key1 = decrypt_credential(data["groq_api_key"])
+                    engine_ai.GROQ_API_KEY = key1
+                    engine_ai.USER_GROQ_KEY_1 = key1
+                    os.environ["GROQ_API_KEY"] = key1
+                    logger.info("Loaded Groq key 1 from DB (%s...)", key1[:8])
+                try:
+                    key2_enc = data["groq_api_key_2"]
+                    if key2_enc:
+                        key2 = decrypt_credential(key2_enc)
+                        engine_ai.GROQ_API_KEY_2 = key2
+                        engine_ai.USER_GROQ_KEY_2 = key2
+                        os.environ["GROQ_API_KEY_2"] = key2
+                        logger.info("Loaded Groq key 2 from DB (%s...)", key2[:8])
+                    else:
+                        logger.info("Groq key 2 not set in DB — will use key 1 for both models")
+                except (KeyError, IndexError, TypeError):
+                    logger.info("Groq key 2 column not found — using key 1 for both models")
+            else:
+                logger.warning("No user credentials found in DB")
     except Exception as e:
-        logger.warning("Failed to load Groq keys from DB: %s", str(e)[:100])
+        logger.warning("Failed to load Groq keys from DB: %s", str(e)[:200])
 
 
 app = FastAPI(
@@ -173,13 +193,15 @@ async def api_save_groq_key(
     Key 2: Llama 3.3 (70B) — second opinion for confirmation"""
     result = await save_groq_key(user["user_id"], request)
 
-    # Also set env vars so engine_ai picks them up immediately
+    # Also set env vars and module vars so engine_ai picks them up immediately
     import tradepilot.layer2.engine_ai as engine_ai
     os.environ["GROQ_API_KEY"] = request.groq_api_key
     engine_ai.GROQ_API_KEY = request.groq_api_key
+    engine_ai.USER_GROQ_KEY_1 = request.groq_api_key
     if request.groq_api_key_2:
         os.environ["GROQ_API_KEY_2"] = request.groq_api_key_2
         engine_ai.GROQ_API_KEY_2 = request.groq_api_key_2
+        engine_ai.USER_GROQ_KEY_2 = request.groq_api_key_2
 
     return result
 
@@ -2603,13 +2625,16 @@ async def ai_chat(request: ChatRequest, user: dict = Depends(get_current_user)):
 
     groq_key = os.environ.get("GROQ_API_KEY", "")
     if not groq_key:
-        # Try user-level key
+        # Try from engine_ai module (loaded on startup from DB)
+        import tradepilot.layer2.engine_ai as engine_ai
+        groq_key = engine_ai.GROQ_API_KEY
+    if not groq_key:
+        # Last resort: try user-level key from DB
         try:
             from tradepilot.auth import get_user_credentials
             creds = await get_user_credentials(user["user_id"])
             if creds and creds.get("groq_api_key"):
-                from tradepilot.auth import decrypt_credential
-                groq_key = decrypt_credential(creds["groq_api_key"])
+                groq_key = creds["groq_api_key"]
         except Exception:
             pass
 
