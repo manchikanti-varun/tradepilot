@@ -2,7 +2,11 @@ import { get, post, getBaseUrl } from './client';
 
 export const historyApi = {
   list: (limit = 60) => get(`/api/history?limit=${limit}`),
-  exportUrl: () => `${getBaseUrl()}/api/history/export`,
+  exportUrl: () => {
+    const token = localStorage.getItem('tp_access');
+    const base = `${getBaseUrl()}/api/history/export`;
+    return token ? `${base}?token=${token}` : base;
+  },
   notes: (tradeId) => get(`/api/history/${tradeId}/notes`),
   addNote: (tradeId, note, tags) => post(`/api/history/${tradeId}/notes`, { note, tags }),
   stats: () => get('/api/stats'),

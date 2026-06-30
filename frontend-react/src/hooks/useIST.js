@@ -1,16 +1,26 @@
 import { useState, useEffect, useRef } from 'react';
 
-function getIST() {
-  return new Date(new Date().toLocaleString('en-US', { timeZone: 'Asia/Kolkata' }));
+const istFormatter = new Intl.DateTimeFormat('en-IN', {
+  timeZone: 'Asia/Kolkata',
+  hour: 'numeric',
+  minute: 'numeric',
+  second: 'numeric',
+  hour12: false,
+});
+
+function getISTParts() {
+  const parts = istFormatter.formatToParts(new Date());
+  const get = (type) => parseInt(parts.find((p) => p.type === type)?.value || '0', 10);
+  return { hours: get('hour'), minutes: get('minute'), seconds: get('second') };
 }
 
 export function useIST() {
-  const [time, setTime] = useState(getIST);
+  const [time, setTime] = useState(getISTParts);
   const intervalRef = useRef(null);
 
   useEffect(() => {
     intervalRef.current = setInterval(() => {
-      setTime(getIST());
+      setTime(getISTParts());
     }, 1000);
 
     return () => {
@@ -18,9 +28,7 @@ export function useIST() {
     };
   }, []);
 
-  const hours = time.getHours();
-  const minutes = time.getMinutes();
-  const seconds = time.getSeconds();
+  const { hours, minutes, seconds } = time;
 
   const h12 = hours % 12 || 12;
   const ampm = hours >= 12 ? 'PM' : 'AM';

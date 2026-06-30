@@ -246,12 +246,29 @@ export default function StockDetailModal({ symbol, onClose }) {
                   <h3 className="text-xs font-bold text-info mb-3">📋 When would this be a trade?</h3>
                   <div className="space-y-3">
                     {plan.conditional_entries.map((entry, i) => (
-                      <div key={i} className="bg-overlay rounded-lg p-3 border border-border-dim">
+                      <div key={i} className={`bg-overlay rounded-lg p-3 border ${
+                        entry.ai_valid === false ? 'border-sell/30 opacity-60' :
+                        entry.ai_valid === true ? 'border-buy/30' : 'border-border-dim'
+                      }`}>
                         <div className="flex items-start gap-2">
-                          <span className="text-buy font-bold text-xs mt-0.5">→</span>
-                          <div>
-                            <p className="text-[11px] font-medium text-text-primary">{entry.condition}</p>
+                          <span className={`font-bold text-xs mt-0.5 ${
+                            entry.ai_valid === false ? 'text-sell' :
+                            entry.ai_valid === true ? 'text-buy' : 'text-buy'
+                          }`}>{entry.ai_valid === false ? '✗' : entry.ai_valid === true ? '✓' : '→'}</span>
+                          <div className="flex-1">
+                            <div className="flex items-center gap-2">
+                              <p className="text-[11px] font-medium text-text-primary">{entry.condition}</p>
+                              {entry.ai_valid === true && (
+                                <span className="text-[8px] font-bold bg-buy/15 text-buy px-1.5 py-0.5 rounded">AI VALID</span>
+                              )}
+                              {entry.ai_valid === false && (
+                                <span className="text-[8px] font-bold bg-sell/15 text-sell px-1.5 py-0.5 rounded">AI REJECTED</span>
+                              )}
+                            </div>
                             <p className="text-[10px] text-text-muted mt-1">{entry.note}</p>
+                            {entry.ai_note && (
+                              <p className="text-[10px] text-info/80 mt-1 italic">AI: {entry.ai_note}</p>
+                            )}
                             <div className="flex gap-3 mt-1.5 text-[10px] font-mono">
                               <span className="text-text-secondary">Entry: <span className="text-buy">₹{entry.entry}</span></span>
                               <span className="text-text-secondary">Target: <span className="text-buy">₹{entry.target}</span></span>

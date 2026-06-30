@@ -306,6 +306,92 @@ Respond ONLY in JSON:
     return await ai_quick_json(prompt, max_tokens=350)
 
 
+async def ai_validate_conditional_entries(symbol: str, data: dict, entries: list[dict]) -> list[dict]:
+    """AI validates the generated conditional entry suggestions.
+
+    Takes the stock's current data + the rule-based conditional entries and asks
+    AI whether each one is realistic and worth watching.
+
+    Returns the same entries list with added fields:
+    - ai_valid: bool (AI thinks this is a good setup to watch)
+    - ai_note: str (AI's brief reasoning)
+    """
+    if not entries:
+        return entries
+
+    api_key = _get_key_for_model(1)
+    if not api_key:
+        # No key available — return entries unchanged
+        return entries
+
+    entries_text = ""
+    for i, e in enumerate(entries, 1):
+        entries_text += f"""  {i}. Condition: {e.get('condition', '')}
+     Entry: ₹{e.get('entry', 0)}, Target: ₹{e.get('target', 0)}
+     Note: {e.get('note', '')}
+"""
+
+    prompt = f"""You are a professional intraday trader on NSE India. A system generated conditional entry suggestions for {symbol}.
+Your job: validate whether each suggestion is realistic and worth watching TODAY.
+
+STOCK DATA:
+- LTP: ₹{data.get('ltp', 0)}
+- Day High: ₹{data.get('day_high', 0)}, Day Low: ₹{data.get('day_low', 0)}
+- Support: ₹{data.get('support', 0)}, Resistance: ₹{data.get('resistance', 0)}
+- RSI: {data.get('rsi', 50)}, MACD: {data.get('macd', 0)} ({'bullish' if data.get('macd', 0) > 0 else 'bearish'})
+- ATR: ₹{data.get('atr', 0)}
+- Volume: {data.get('volume_ratio', 1.0)}x average
+- Recent trend: {data.get('recent_trend', 'UNKNOWN')}
+
+SUGGESTED CONDITIONAL ENTRIES:
+{entries_text}
+
+For each entry, decide:
+- Is the condition realistic to trigger today?
+- Is the entry price sensible relative to the condition?
+- Is the target achievable within intraday given ATR?
+- Is risk:reward acceptable (at least 1:1.5)?
+
+Respond ONLY in JSON:
+{{
+  "validations": [
+    {{"index": 1, "valid": true/false, "note": "1 sentence reason"}},
+    {{"index": 2, "valid": true/false, "note": "1 sentence reason"}}
+  ]
+}}"""
+
+    url = "https://api.groq.com/openai/v1/chat/completions"
+    payload = {
+        "model": "llama-3.3-70b-versatile",
+        "messages": [{"role": "user", "content": prompt}],
+        "temperature": 0.2,
+        "max_tokens": 300,
+    }
+    headers = {"Authorization": f"Bearer {api_key}", "Content-Type": "application/json"}
+
+    try:
+        async with aiohttp.ClientSession() as session:
+            async with session.post(url, json=payload, headers=headers, timeout=aiohttp.ClientTimeout(total=15)) as resp:
+                if resp.status != 200:
+                    return entries
+                result = await resp.json()
+
+        text = result.get("choices", [{}])[0].get("message", {}).get("content", "")
+        parsed = _parse_ai_response(text, "Groq-Validate")
+
+        if parsed and "validations" in parsed:
+            for v in parsed["validations"]:
+                idx = v.get("index", 0) - 1
+                if 0 <= idx < len(entries):
+                    entries[idx]["ai_valid"] = bool(v.get("valid", True))
+                    entries[idx]["ai_note"] = str(v.get("note", ""))[:150]
+
+    except Exception as e:
+        logger.debug("ai_validate_conditional_entries failed: %s", str(e)[:80])
+
+    return entries
+
+
 async def ai_reeval_position(data: dict) -> Optional[dict]:
     """AI-powered position re-evaluation — should you hold or exit?
     

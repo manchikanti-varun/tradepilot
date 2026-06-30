@@ -53,7 +53,7 @@ export const usePositionStore = create((set) => ({
       currentLtp: p.current_ltp,
       qty: p.qty,
       stopPrice: p.stop_price,
-      target: p.peak_price,
+      target: p.target ?? p.peak_price,
       entryTime: p.entry_time,
       phase: p.phase,
       shouldExit: exit?.should_exit || false,

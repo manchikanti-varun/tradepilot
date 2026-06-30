@@ -7,7 +7,7 @@ from datetime import datetime, date, timedelta
 from typing import Optional
 from contextlib import asynccontextmanager
 
-from fastapi import FastAPI, HTTPException, Request, Depends
+from fastapi import FastAPI, HTTPException, Request, Depends, Query
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel, Field, field_validator
@@ -340,6 +340,76 @@ async def health():
     }
 
 
+# ═══════════════════════════════════════════════════════════════
+# SSE STREAM ENDPOINT — Real-time updates via Server-Sent Events
+# ═══════════════════════════════════════════════════════════════
+
+import asyncio
+import json as json_module
+from fastapi.responses import StreamingResponse
+
+# In-memory event bus for SSE clients
+_sse_clients: list = []
+
+def broadcast_sse_event(event_type: str, data: dict):
+    """Push an event to all connected SSE clients."""
+    message = f"event: {event_type}\ndata: {json_module.dumps(data)}\n\n"
+    for queue in _sse_clients[:]:
+        try:
+            queue.put_nowait(message)
+        except asyncio.QueueFull:
+            pass  # Client is slow — skip this event for them
+
+
+@app.get("/api/stream")
+async def sse_stream(token: Optional[str] = Query(None)):
+    """Server-Sent Events endpoint for real-time updates.
+    Authenticates via query param token (since EventSource doesn't support headers).
+    """
+    # Validate token
+    if token:
+        from tradepilot.auth import decode_token
+        try:
+            payload = decode_token(token)
+            if payload.get("type") != "access":
+                raise HTTPException(status_code=401, detail="Invalid token type")
+        except HTTPException:
+            raise
+        except Exception:
+            raise HTTPException(status_code=401, detail="Invalid token")
+    else:
+        raise HTTPException(status_code=401, detail="Token required")
+
+    async def event_generator():
+        queue = asyncio.Queue(maxsize=50)
+        _sse_clients.append(queue)
+        try:
+            # Send initial connection confirmation
+            yield "event: connected\ndata: {}\n\n"
+
+            while True:
+                try:
+                    message = await asyncio.wait_for(queue.get(), timeout=30.0)
+                    yield message
+                except asyncio.TimeoutError:
+                    # Send keepalive comment to prevent timeout
+                    yield ": keepalive\n\n"
+        except asyncio.CancelledError:
+            pass
+        finally:
+            _sse_clients.remove(queue)
+
+    return StreamingResponse(
+        event_generator(),
+        media_type="text/event-stream",
+        headers={
+            "Cache-Control": "no-cache",
+            "Connection": "keep-alive",
+            "X-Accel-Buffering": "no",
+        },
+    )
+
+
 @app.get("/api/state")
 async def get_system_state(user: dict = Depends(get_current_user)):
     from zoneinfo import ZoneInfo
@@ -382,6 +452,20 @@ async def get_system_state(user: dict = Depends(get_current_user)):
         risk_gate = state.risk_state.gate.value if state.risk_state else "GO"
         risk_reason = state.risk_state.reason if state.risk_state else None
 
+    # Fetch today's P&L from daily_state table
+    today_pnl = 0.0
+    try:
+        today_str = now_ist.strftime("%Y-%m-%d")
+        async with get_db() as db:
+            row = await db.execute(
+                "SELECT daily_pnl FROM daily_state WHERE date = ?", (today_str,)
+            )
+            pnl_row = await row.fetchone()
+            if pnl_row and pnl_row["daily_pnl"] is not None:
+                today_pnl = float(pnl_row["daily_pnl"])
+    except Exception:
+        pass
+
     return {
         "market_mode": "CLOSED" if is_market_closed_today else state.market_mode.value,
         "is_market_holiday": is_market_closed_today,
@@ -394,6 +478,7 @@ async def get_system_state(user: dict = Depends(get_current_user)):
             "progress_pct_to_next_tier": round(progress, 1),
             "peak_capital": peak,
             "drawdown_from_peak_pct": round(drawdown, 1),
+            "today_pnl": today_pnl,
         },
     }
 
@@ -691,7 +776,7 @@ def _compute_enhanced_trend(
 
 
 @app.get("/api/signals")
-async def get_signals():
+async def get_signals(user: dict = Depends(get_current_user)):
     state = get_state()
     signals = []
     now = datetime.now()
@@ -999,8 +1084,24 @@ async def get_trade_history(limit: int = 60, user: dict = Depends(get_current_us
 
 
 @app.get("/api/history/export")
-async def export_trade_history():
-    """Export all closed trades as CSV."""
+async def export_trade_history(token: Optional[str] = Query(None), request: Request = None):
+    """Export all closed trades as CSV. Supports token via query param for browser downloads."""
+    from tradepilot.auth import decode_token as _decode_token
+
+    # Authenticate: prefer Authorization header, fall back to query param
+    jwt_token = None
+    auth_header = request.headers.get("authorization", "") if request else ""
+    if auth_header.startswith("Bearer "):
+        jwt_token = auth_header[7:]
+    elif token:
+        jwt_token = token
+
+    if not jwt_token:
+        raise HTTPException(status_code=401, detail="Authentication required")
+
+    payload = _decode_token(jwt_token)
+    if payload.get("type") != "access":
+        raise HTTPException(status_code=401, detail="Invalid token type")
     from fastapi.responses import Response
     from tradepilot.database import get_db
     import csv
@@ -1038,7 +1139,7 @@ async def export_trade_history():
 
 
 @app.get("/api/history/{trade_id}/notes")
-async def get_trade_notes(trade_id: int):
+async def get_trade_notes(trade_id: int, user: dict = Depends(get_current_user)):
     """Get all notes for a trade."""
     from tradepilot.database import get_db
     async with get_db() as db:
@@ -1058,7 +1159,7 @@ class TradeNoteRequest(BaseModel):
 
 
 @app.post("/api/history/{trade_id}/notes")
-async def add_trade_note(trade_id: int, request: TradeNoteRequest):
+async def add_trade_note(trade_id: int, request: TradeNoteRequest, user: dict = Depends(get_current_user)):
     """Add a note to a trade."""
     from tradepilot.database import get_db
     async with get_db() as db:
@@ -1071,7 +1172,7 @@ async def add_trade_note(trade_id: int, request: TradeNoteRequest):
 
 
 @app.get("/api/report/today")
-async def get_today_report():
+async def get_today_report(user: dict = Depends(get_current_user)):
     """Engine 18 coach output."""
     if not ENABLE_ENGINE18_COACH:
         return {"status": "disabled", "note": "Engine 18 feature flag is off"}
@@ -1086,7 +1187,7 @@ async def get_today_report():
 
 
 @app.get("/api/report/weekly")
-async def get_weekly_report():
+async def get_weekly_report(user: dict = Depends(get_current_user)):
     """Weekly summary from Engine 20 self-audit."""
     if not ENABLE_ENGINE20_SELF_AUDIT:
         return {"status": "disabled"}
@@ -1101,7 +1202,7 @@ async def get_weekly_report():
 
 
 @app.get("/api/report/reality-check")
-async def reality_check(period_start: Optional[str] = None, period_end: Optional[str] = None):
+async def reality_check(period_start: Optional[str] = None, period_end: Optional[str] = None, user: dict = Depends(get_current_user)):
     state = get_state()
     result = await run_reality_check(state.market_data, period_start, period_end)
     return {
@@ -1190,7 +1291,7 @@ async def get_news(user: dict = Depends(get_current_user)):
 
 
 @app.get("/api/news/analyze")
-async def analyze_news_impact():
+async def analyze_news_impact(user: dict = Depends(get_current_user)):
     """AI analysis of today's news — how it affects the market."""
     from tradepilot.layer2.engine_ai import analyze_with_groq
     from tradepilot.layer2.engine27_news import _news_cache
@@ -1297,7 +1398,7 @@ async def get_alerts(user: dict = Depends(get_current_user)):
 
 
 @app.get("/api/market/sectors")
-async def get_sector_heatmap():
+async def get_sector_heatmap(user: dict = Depends(get_current_user)):
     """Sector performance heatmap — computed from watchlist scores."""
     from zoneinfo import ZoneInfo
     from tradepilot.config import NSE_HOLIDAYS
@@ -1350,7 +1451,7 @@ async def get_sector_heatmap():
 
 
 @app.get("/api/market/movers")
-async def get_top_movers():
+async def get_top_movers(user: dict = Depends(get_current_user)):
     """Top gainers and losers from current scan."""
     from zoneinfo import ZoneInfo
     from tradepilot.config import NSE_HOLIDAYS
@@ -1450,7 +1551,7 @@ async def get_signals_debug():
 
 
 @app.get("/api/signals/history")
-async def get_signal_history(limit: int = 50):
+async def get_signal_history(limit: int = 50, user: dict = Depends(get_current_user)):
     """Past signals that fired — learn which ones worked."""
     from tradepilot.database import get_db
     async with get_db() as db:
@@ -1471,7 +1572,7 @@ async def get_signal_history(limit: int = 50):
 
 
 @app.get("/api/chart/{symbol}")
-async def get_chart_data(symbol: str, interval: str = "5m"):
+async def get_chart_data(symbol: str, interval: str = "5m", user: dict = Depends(get_current_user)):
     """Get candlestick data for charting."""
     state = get_state()
     now = datetime.now()
@@ -1691,7 +1792,8 @@ async def get_stock_trading_plan(symbol: str, user: dict = Depends(get_current_u
         "risk_reward": rr,
         "trade_viable": trade_viable,
         "viability_note": None if trade_viable else "Target too close — charges eat the profit. Wait for a better entry.",
-        "conditional_entries": _generate_conditional_entries(
+        "conditional_entries": await _ai_validated_conditional_entries(
+            symbol=symbol, stock_data=stock_data,
             ltp=ltp, support=support, resistance=resistance,
             day_high=day_high, day_low=day_low, daily_atr=daily_atr,
             recent_trend=recent_trend, ai_action=ai_result.get("action", "WAIT"),
@@ -1722,6 +1824,25 @@ async def get_stock_trading_plan(symbol: str, user: dict = Depends(get_current_u
 # ═══════════════════════════════════════════════════════════════
 # FEATURES 1-24: FULL TRADING TERMINAL ENDPOINTS
 # ═══════════════════════════════════════════════════════════════
+
+
+async def _ai_validated_conditional_entries(symbol, stock_data, ltp, support, resistance, day_high, day_low, daily_atr, recent_trend, ai_action):
+    """Generate conditional entries then validate them with AI."""
+    entries = _generate_conditional_entries(
+        ltp=ltp, support=support, resistance=resistance,
+        day_high=day_high, day_low=day_low, daily_atr=daily_atr,
+        recent_trend=recent_trend, ai_action=ai_action,
+    )
+    if not entries:
+        return entries
+
+    try:
+        from tradepilot.layer2.engine_ai import ai_validate_conditional_entries
+        entries = await ai_validate_conditional_entries(symbol, stock_data, entries)
+    except Exception:
+        pass  # Non-critical — return unvalidated entries
+
+    return entries
 
 
 def _generate_conditional_entries(ltp, support, resistance, day_high, day_low, daily_atr, recent_trend, ai_action):
@@ -1778,7 +1899,7 @@ class PriceAlertRequest(BaseModel):
 
 
 @app.get("/api/stats/time-performance")
-async def get_time_performance():
+async def get_time_performance(user: dict = Depends(get_current_user)):
     """P&L by hour of entry — find your best trading times."""
     from tradepilot.database import get_db
     async with get_db() as db:
@@ -1895,7 +2016,7 @@ async def get_premarket():
 
 
 @app.post("/api/alerts/price")
-async def create_price_alert(request: PriceAlertRequest):
+async def create_price_alert(request: PriceAlertRequest, user: dict = Depends(get_current_user)):
     """Feature 3: Create price alert."""
     from tradepilot.database import get_db
     async with get_db() as db:
@@ -1908,7 +2029,7 @@ async def create_price_alert(request: PriceAlertRequest):
 
 
 @app.get("/api/alerts/price")
-async def get_price_alerts():
+async def get_price_alerts(user: dict = Depends(get_current_user)):
     """Get all active price alerts."""
     from tradepilot.database import get_db
     async with get_db() as db:
@@ -1921,7 +2042,7 @@ async def get_price_alerts():
 
 
 @app.delete("/api/alerts/price/{alert_id}")
-async def delete_price_alert(alert_id: int):
+async def delete_price_alert(alert_id: int, user: dict = Depends(get_current_user)):
     """Delete a price alert."""
     from tradepilot.database import get_db
     async with get_db() as db:
@@ -1931,7 +2052,7 @@ async def delete_price_alert(alert_id: int):
 
 
 @app.post("/api/intake/quick")
-async def quick_trade_intake(symbol: str, price: float, qty: int, intent: str = "BUY", time: str = None):
+async def quick_trade_intake(symbol: str, price: float, qty: int, intent: str = "BUY", time: str = None, user: dict = Depends(get_current_user)):
     """Feature 4: Quick trade — structured data, no NLP parsing needed."""
     intent = intent.upper()
     if intent not in ("BUY", "SELL"):
@@ -2030,7 +2151,7 @@ async def get_expiry_info():
 
 
 @app.get("/api/stock/{symbol}/multiframe")
-async def get_multiframe_analysis(symbol: str):
+async def get_multiframe_analysis(symbol: str, user: dict = Depends(get_current_user)):
     """Feature 7: Multi-timeframe view — 5min + 15min + 1h trend."""
     from tradepilot.layer2.engine4_discovery import compute_ema, compute_rsi, compute_macd
     state = get_state()
@@ -2234,7 +2355,7 @@ async def get_market_countdown():
 
 
 @app.get("/api/eod-summary")
-async def get_eod_summary():
+async def get_eod_summary(user: dict = Depends(get_current_user)):
     """Feature 17: End-of-day summary."""
     from tradepilot.database import get_db
     today = datetime.now().strftime("%Y-%m-%d")
@@ -2814,7 +2935,7 @@ RULES:
 
 
 @app.post("/api/scan")
-async def trigger_scan():
+async def trigger_scan(user: dict = Depends(get_current_user)):
     """DEV ONLY. Rate-limited. Respects Engine 11 gate."""
     global _last_scan_trigger
     if not DEBUG_ENDPOINTS_ENABLED:

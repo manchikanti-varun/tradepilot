@@ -11,8 +11,13 @@ let eventSource = null;
 let retryCount = 0;
 let fallbackIntervals = [];
 let sseAvailable = false;
+let sseSupported = null; // null = unknown, true/false after first attempt
 
 const RETRY_DELAYS = [3000, 10000, 30000];
+
+export function isSSEAvailable() {
+  return sseAvailable;
+}
 
 export function connectSSE() {
   if (eventSource) {
@@ -22,6 +27,13 @@ export function connectSSE() {
   // Immediately fetch data on connect — don't wait for SSE
   refreshAllStores();
 
+  // If we already know SSE endpoint doesn't exist, skip straight to polling
+  if (sseSupported === false) {
+    useAppStore.getState().setConnectionStatus('polling');
+    startFallbackPolling();
+    return;
+  }
+
   try {
     const token = localStorage.getItem('tp_access');
     const url = `${BASE}/api/stream${token ? `?token=${token}` : ''}`;
@@ -30,6 +42,7 @@ export function connectSSE() {
     eventSource.onopen = () => {
       retryCount = 0;
       sseAvailable = true;
+      sseSupported = true;
       useAppStore.getState().setConnectionStatus('connected');
       refreshAllStores();
     };
@@ -82,10 +95,13 @@ export function connectSSE() {
     eventSource.onerror = () => {
       eventSource.close();
       eventSource = null;
+      sseAvailable = false;
       handleDisconnect();
     };
   } catch {
     sseAvailable = false;
+    sseSupported = false;
+    useAppStore.getState().setConnectionStatus('polling');
     startFallbackPolling();
   }
 }
@@ -99,6 +115,7 @@ function handleDisconnect() {
     setTimeout(() => connectSSE(), delay);
   } else {
     // SSE endpoint doesn't exist — switch to polling permanently
+    sseSupported = false;
     useAppStore.getState().setConnectionStatus('polling');
     startFallbackPolling();
   }

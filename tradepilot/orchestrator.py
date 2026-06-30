@@ -383,6 +383,23 @@ async def _run_live_pipeline_inner():
                 continue
 
     state.signals = signals
+    state.last_scan_time = datetime.now()
+
+    # Broadcast scan completion to SSE clients
+    try:
+        from tradepilot.api import broadcast_sse_event
+        broadcast_sse_event('scan_complete', {})
+        if signals:
+            broadcast_sse_event('signal_update', {
+                'signals': [
+                    {'symbol': s.symbol, 'grade': s.grade.value if hasattr(s.grade, 'value') else str(s.grade),
+                     'composite': s.composite, 'ltp': s.ltp, 'qty': s.qty}
+                    for s in signals[:5]
+                ]
+            })
+    except Exception:
+        pass  # SSE broadcast is best-effort
+
     if signals:
         logger.info("Priority #1: %s (net ₹%.2f)", signals[0].symbol, signals[0].net_after_charges)
         # Log signal to history

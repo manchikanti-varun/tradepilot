@@ -2,6 +2,19 @@ import { useState, useEffect } from 'react';
 import { useIST } from './useIST';
 import { useMarketStore } from '../store/useMarketStore';
 
+// Reliable IST date string (YYYY-MM-DD) using Intl
+const istDateFormatter = new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Kolkata' });
+function getISTDateString() {
+  return istDateFormatter.format(new Date()); // returns YYYY-MM-DD in en-CA locale
+}
+
+// Reliable IST day-of-week
+const istDayFormatter = new Intl.DateTimeFormat('en-US', { timeZone: 'Asia/Kolkata', weekday: 'short' });
+function getISTDay() {
+  const day = istDayFormatter.format(new Date());
+  return day === 'Sun' || day === 'Sat';
+}
+
 export function useMarketHours() {
   const { hours, minutes } = useIST();
   const [briefDismissed, setBriefDismissed] = useState(false);
@@ -19,9 +32,7 @@ export function useMarketHours() {
   const clientIsMarketOpen = totalMinutes >= marketOpen && totalMinutes <= marketClose;
   const clientIsPostMarket = totalMinutes > marketClose;
 
-  const now = new Date(new Date().toLocaleString('en-US', { timeZone: 'Asia/Kolkata' }));
-  const day = now.getDay();
-  const isWeekend = day === 0 || day === 6;
+  const isWeekend = getISTDay();
 
   // Use backend status as the source of truth (handles holidays)
   // Fall back to client-side time check only if backend hasn't responded
@@ -54,7 +65,7 @@ export function useMarketHours() {
 
   // Brief modal trigger
   useEffect(() => {
-    const today = now.toISOString().slice(0, 10);
+    const today = getISTDateString();
     const key = `brief_read_${today}`;
     if (localStorage.getItem(key)) {
       setBriefDismissed(true);
@@ -64,7 +75,7 @@ export function useMarketHours() {
   const shouldShowBrief = isPreMarket && !briefDismissed && !isWeekend;
 
   const dismissBrief = () => {
-    const today = now.toISOString().slice(0, 10);
+    const today = getISTDateString();
     localStorage.setItem(`brief_read_${today}`, 'true');
     setBriefDismissed(true);
   };

@@ -29,7 +29,10 @@ export const useMarketStore = create((set, get) => ({
     if (state.risk_gate) updates.riskGate = state.risk_gate;
     if (state.risk_reason !== undefined) updates.riskReason = state.risk_reason || '';
     if (state.growth_state) {
-      updates.todayPnL = state.growth_state.current_capital || 0;
+      // Use today_pnl from backend if available; do NOT use current_capital as P&L
+      if (state.growth_state.today_pnl !== undefined) {
+        updates.todayPnL = state.growth_state.today_pnl;
+      }
     }
     set(updates);
   },
